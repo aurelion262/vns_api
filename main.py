@@ -1,8 +1,16 @@
 from fastapi import FastAPI, Query, HTTPException
 from vnstock_data import Market
 import pandas as pd
+import asyncio
+from streamer import AppStreamer
 
 app = FastAPI(title="Vnstock API Server", description="API server for vnstock_data (Paid Version)")
+
+streamer = AppStreamer()
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(streamer.start())
 
 @app.get("/api/v1/quotes")
 def get_quotes(symbols: str = Query(..., description="Comma separated list of stock symbols, e.g., TCB,VIC,HPG")):
