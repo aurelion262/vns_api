@@ -20,38 +20,59 @@ class AlertProcessor(DataProcessor):
         symbol = data.get('symbol')
         price = data.get('price') or data.get('close_price') or data.get('closePrice')
         
+        if not price:
+            price = data.get('referencePrice') or data.get('reference_price') or data.get('refPrice')
+
         if not symbol or not price:
             return
+            
+        price = price / 1000
 
         for rule in self.rules:
             if rule['symbol'] != symbol:
                 continue
 
-            upper = rule.get('upperLimit')
-            lower = rule.get('lowerLimit')
+            condition = rule.get('condition')
+            target = rule.get('targetPrice')
+            offsets = rule.get('offsets', [])
+            
+            if target is None or not condition:
+                continue
+                
+            best_offset = None
 
-            should_alert = False
-            reason = ""
+            if condition == '>=':
+                # highest target first
+                sorted_offsets = sorted(offsets, reverse=True)
+                for off in sorted_offsets:
+                    if price >= target * (1 + off / 100):
+                        best_offset = off
+                        break
+            else: # '<='
+                # lowest target first
+                sorted_offsets = sorted(offsets)
+                for off in sorted_offsets:
+                    if price <= target * (1 + off / 100):
+                        best_offset = off
+                        break
+                        
+            if best_offset is not None:
+                reason = "Streamer trigger"
+                await self.trigger_alert(rule['id'], price, reason, best_offset)
 
-            if upper is not None and price >= upper:
-                should_alert = True
-                reason = f"Vượt chặn trên ({upper})"
-            elif lower is not None and price <= lower:
-                should_alert = True
-                reason = f"Thủng chặn dưới ({lower})"
-
-            if should_alert:
-                await self.trigger_alert(rule['id'], price, reason)
-
-    async def trigger_alert(self, record_id, current_price, reason):
-        logger.info(f"Triggering alert for {record_id} at {current_price}: {reason}")
+    async def trigger_alert(self, record_id, current_price, reason, offset_triggered=None):
+        logger.info(f"Triggering alert for {record_id} at {current_price} (offset {offset_triggered})")
         try:
             async with aiohttp.ClientSession() as session:
-                await session.post("http://127.0.0.1:3000/alerts/trigger", json={
+                payload = {
                     "recordId": record_id,
                     "currentPrice": current_price,
                     "reason": reason
-                })
+                }
+                if offset_triggered is not None:
+                    payload["offsetTriggered"] = offset_triggered
+                    
+                await session.post("http://127.0.0.1:3000/alerts/trigger", json=payload)
         except Exception as e:
             logger.error(f"Failed to trigger alert: {e}")
 
