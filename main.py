@@ -6,6 +6,16 @@ from streamer import AppStreamer
 
 app = FastAPI(title="Vnstock API Server", description="API server for vnstock_data (Paid Version)")
 
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://engaged-busy-tub-faces.trycloudflare.com", "https://productions-requires-mortgages-far.trycloudflare.com", "http://localhost:5173", "http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 streamer = AppStreamer()
 
 @app.on_event("startup")
