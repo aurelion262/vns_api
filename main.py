@@ -10,7 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+env_mode = os.environ.get("APP_ENV") or os.environ.get("NODE_ENV")
+env_file = f".env.{env_mode}" if env_mode else ".env"
+if os.path.exists(env_file):
+    load_dotenv(env_file)
+else:
+    load_dotenv(".env")
 cors_origins_env = os.environ.get("CORS_ORIGINS", "")
 allow_origins_list = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
 if "http://localhost:5173" not in allow_origins_list:
