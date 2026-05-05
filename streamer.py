@@ -1,6 +1,7 @@
 import asyncio
 import aiohttp
 import logging
+from datetime import datetime
 from vnstock_pipeline.stream import WSSClient
 from vnstock_pipeline.stream.processors import DataProcessor
 
@@ -83,6 +84,14 @@ class AppStreamer:
         self.client.add_processor(self.processor)
         self.symbols = set()
         self.running = False
+        self.is_healthy = False
+        self.connected_since = None
+        self.refresh_event = asyncio.Event()
+
+    def force_refresh(self):
+        """Signal the update loop to refresh rules immediately."""
+        self.refresh_event.set()
+        logger.info("Force refresh triggered")
 
     async def update_loop(self):
         async with aiohttp.ClientSession() as session:
@@ -102,12 +111,31 @@ class AppStreamer:
                 except Exception as e:
                     logger.error(f"Error fetching rules: {e}")
                 
-                await asyncio.sleep(30)
+                # Wait for either 30 seconds or a force refresh signal
+                self.refresh_event.clear()
+                try:
+                    await asyncio.wait_for(self.refresh_event.wait(), timeout=30)
+                    logger.info("Refresh event received, fetching rules immediately")
+                except asyncio.TimeoutError:
+                    pass  # Normal 30s cycle
 
     async def start(self):
         self.running = True
         asyncio.create_task(self.update_loop())
         try:
+            self.is_healthy = True
+            self.connected_since = datetime.utcnow().isoformat()
+            logger.info("Streamer connected and healthy")
             await self.client.connect()
         except Exception as e:
+            self.is_healthy = False
+            self.connected_since = None
             logger.error(f"Streamer disconnected: {e}")
+
+    def get_health(self):
+        return {
+            "healthy": self.is_healthy,
+            "connected_since": self.connected_since,
+            "symbols_count": len(self.symbols),
+            "rules_count": len(self.processor.rules),
+        }

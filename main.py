@@ -3,6 +3,7 @@ from vnstock_data import Market
 import pandas as pd
 import asyncio
 from streamer import AppStreamer
+from routers.experiment import router as experiment_router
 
 app = FastAPI(title="Vnstock API Server", description="API server for vnstock_data (Paid Version)")
 
@@ -32,6 +33,8 @@ app.add_middleware(
 )
 
 streamer = AppStreamer()
+
+app.include_router(experiment_router)
 
 @app.on_event("startup")
 async def startup_event():
@@ -65,7 +68,19 @@ def get_quotes(symbols: str = Query(..., description="Comma separated list of st
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/streamer/refresh")
+def refresh_streamer():
+    """Signal the streamer to refresh rules immediately."""
+    streamer.force_refresh()
+    return {"success": True, "message": "Refresh signal sent"}
+
+@app.get("/streamer/health")
+def streamer_health():
+    """Check WebSocket streamer health status."""
+    return streamer.get_health()
+
 if __name__ == "__main__":
     import uvicorn
     # Chạy tự động tại port 8000, hỗ trợ tự reload khi sửa code
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+
