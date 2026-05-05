@@ -1,2 +1,2 @@
 @echo off
-.\venv\Scripts\python main.py
+.\.venv\Scripts\python main.py

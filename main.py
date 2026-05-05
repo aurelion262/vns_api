@@ -4,6 +4,7 @@ import pandas as pd
 import asyncio
 from streamer import AppStreamer
 from routers.experiment import router as experiment_router
+from routers.experiment_data_ref import router as experiment_data_ref_router
 
 app = FastAPI(title="Vnstock API Server", description="API server for vnstock_data (Paid Version)")
 
@@ -35,6 +36,7 @@ app.add_middleware(
 streamer = AppStreamer()
 
 app.include_router(experiment_router)
+app.include_router(experiment_data_ref_router)
 
 @app.on_event("startup")
 async def startup_event():
