@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, Query
 import pandas as pd
 from vnstock_data import Reference
-
+from vnstock_data.explorer.kbs.company import Company as KBSCompany
+from vnstock_data.explorer.kbs.listing import Listing as KBSListing
 router = APIRouter(prefix="/api/v1/experiment/data/reference", tags=["Experiment Data Reference"])
 
 def _clean_dataframe(df):
@@ -24,58 +25,68 @@ def get_ref():
 # 1. Company
 @router.get("/company/info")
 def company_info(symbol: str = Query(..., description="Mã chứng khoán, VD: TCB")):
-    try: return {"data": _clean_dataframe(get_ref().company(symbol.upper()).info())}
+    try: return {"data": _clean_dataframe(KBSCompany(symbol.upper()).overview())}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/company/shareholders")
 def company_shareholders(symbol: str = Query(..., description="Mã chứng khoán")):
-    try: return {"data": _clean_dataframe(get_ref().company(symbol.upper()).shareholders())}
+    try: return {"data": _clean_dataframe(KBSCompany(symbol.upper()).shareholders())}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/company/officers")
 def company_officers(symbol: str = Query(..., description="Mã chứng khoán")):
-    try: return {"data": _clean_dataframe(get_ref().company(symbol.upper()).officers())}
+    try: return {"data": _clean_dataframe(KBSCompany(symbol.upper()).officers())}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/company/subsidiaries")
 def company_subsidiaries(symbol: str = Query(..., description="Mã chứng khoán")):
-    try: return {"data": _clean_dataframe(get_ref().company(symbol.upper()).subsidiaries())}
+    try: return {"data": _clean_dataframe(KBSCompany(symbol.upper()).subsidiaries())}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/company/news")
 def company_news(symbol: str = Query(..., description="Mã chứng khoán")):
-    try: return {"data": _clean_dataframe(get_ref().company(symbol.upper()).news())}
+    try: return {"data": _clean_dataframe(KBSCompany(symbol.upper()).news())}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/company/events")
 def company_events(symbol: str = Query(..., description="Mã chứng khoán")):
-    try: return {"data": _clean_dataframe(get_ref().company(symbol.upper()).events())}
+    try: 
+        import requests
+        url = f"https://api.simplize.vn/api/company/events/list?ticker={symbol.upper()}&page=0&size=50"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+        r = requests.get(url, headers=headers, timeout=10)
+        if r.status_code == 200:
+            res_data = r.json()
+            if "data" in res_data and res_data["data"]:
+                import pandas as pd
+                return {"data": _clean_dataframe(pd.DataFrame(res_data["data"]))}
+        return {"data": []}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/company/margin_ratio")
 def company_margin_ratio(symbol: str = Query(..., description="Mã chứng khoán")):
-    try: return {"data": _clean_dataframe(get_ref().company(symbol.upper()).margin_ratio())}
+    try: return {"data": _clean_dataframe(KBSCompany(symbol.upper()).margin_ratio())}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 # 2. Equity
 @router.get("/equity/list")
 def equity_list():
-    try: return {"data": _clean_dataframe(get_ref().equity.list())}
+    try: return {"data": _clean_dataframe(KBSListing().all_symbols())}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/equity/list_by_group")
 def equity_list_by_group(group: str = Query(..., description="Nhóm, VD: VN30")):
-    try: return {"data": _clean_dataframe(get_ref().equity.list_by_group(group.upper()))}
+    try: return {"data": _clean_dataframe(KBSListing().symbols_by_group(group.upper()))}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/equity/list_by_exchange")
 def equity_list_by_exchange():
-    try: return {"data": _clean_dataframe(get_ref().equity.list_by_exchange())}
+    try: return {"data": _clean_dataframe(KBSListing().symbols_by_exchange())}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/equity/list_by_industry")
 def equity_list_by_industry():
-    try: return {"data": _clean_dataframe(get_ref().equity.list_by_industry())}
+    try: return {"data": _clean_dataframe(KBSListing().symbols_by_industries())}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 # 3. Index
