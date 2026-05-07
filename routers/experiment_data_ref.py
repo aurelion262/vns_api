@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Query
 import pandas as pd
 from vnstock_data import Reference
 from vnstock_data.explorer.kbs.company import Company as KBSCompany
+from vnstock_data.explorer.vci.company import Company as VCICompany
 from vnstock_data.explorer.kbs.listing import Listing as KBSListing
 router = APIRouter(prefix="/api/v1/experiment/data/reference", tags=["Experiment Data Reference"])
 
@@ -45,7 +46,7 @@ def company_subsidiaries(symbol: str = Query(..., description="Mã chứng khoá
 
 @router.get("/company/news")
 def company_news(symbol: str = Query(..., description="Mã chứng khoán")):
-    try: return {"data": _clean_dataframe(KBSCompany(symbol.upper()).news())}
+    try: return {"data": _clean_dataframe(VCICompany(symbol.upper()).news())}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/company/events")
@@ -65,8 +66,10 @@ def company_events(symbol: str = Query(..., description="Mã chứng khoán")):
 
 @router.get("/company/margin_ratio")
 def company_margin_ratio(symbol: str = Query(..., description="Mã chứng khoán")):
-    try: return {"data": _clean_dataframe(KBSCompany(symbol.upper()).margin_ratio())}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+    try:
+        return {"data": _clean_dataframe(KBSCompany(symbol.upper()).margin_ratio())}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Không có data từ nguồn dữ liệu gốc (KBS đang lỗi 404)")
 
 # 2. Equity
 @router.get("/equity/list")
