@@ -12,7 +12,10 @@ def _clean_dataframe(df):
     if isinstance(df, pd.DataFrame):
         if df.empty:
             return []
-        df_clean = df.where(pd.notnull(df), None)
+        # Flatten MultiIndex columns if any
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = ['_'.join(map(str, col)).strip() for col in df.columns.values]
+        df_clean = df.astype(object).where(pd.notnull(df), None)
         return df_clean.to_dict(orient="records")
     elif isinstance(df, dict):
         return [df]
