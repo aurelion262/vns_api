@@ -11,6 +11,7 @@ from routers.experiment_data_macro import router as experiment_data_macro_router
 from routers.experiment_data_insights import router as experiment_data_insights_router
 from routers.experiment_data_analytics import router as experiment_data_analytics_router
 from routers.experiment_data_schema import router as experiment_data_schema_router
+from routers.experiment_ta import router as experiment_ta_router
 
 app = FastAPI(title="Vnstock API Server", description="API server for vnstock_data (Paid Version)")
 
@@ -49,6 +50,7 @@ app.include_router(experiment_data_macro_router)
 app.include_router(experiment_data_insights_router)
 app.include_router(experiment_data_analytics_router)
 app.include_router(experiment_data_schema_router)
+app.include_router(experiment_ta_router)
 
 @app.on_event("startup")
 async def startup_event():
