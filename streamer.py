@@ -12,9 +12,14 @@ class AlertProcessor(DataProcessor):
     def __init__(self):
         super().__init__()
         self.rules = []
+        self.state = {}
 
     def update_rules(self, new_rules):
         self.rules = new_rules
+        rule_ids = {r['id'] for r in new_rules}
+        stale_keys = [k for k in self.state.keys() if k not in rule_ids]
+        for k in stale_keys:
+            del self.state[k]
         logger.info(f"Updated rules, active count: {len(self.rules)}")
 
     async def process(self, data):
@@ -33,6 +38,7 @@ class AlertProcessor(DataProcessor):
             if rule['symbol'] != symbol:
                 continue
 
+            rule_id = rule['id']
             condition = rule.get('condition')
             target = rule.get('targetPrice')
             offsets = rule.get('offsets', [])
@@ -57,9 +63,24 @@ class AlertProcessor(DataProcessor):
                         best_offset = off
                         break
                         
-            if best_offset is not None:
-                reason = "Streamer trigger"
-                await self.trigger_alert(rule['id'], price, reason, best_offset)
+            last_offset = self.state.get(rule_id)
+            
+            if best_offset != last_offset:
+                if best_offset is not None:
+                    reason = "Streamer trigger"
+                    await self.trigger_alert(rule_id, price, reason, best_offset)
+                else:
+                    await self.clear_alert(rule_id)
+                self.state[rule_id] = best_offset
+
+    async def clear_alert(self, record_id):
+        logger.info(f"Clearing alert state for {record_id}")
+        try:
+            async with aiohttp.ClientSession() as session:
+                payload = {"recordId": record_id}
+                await session.post("http://127.0.0.1:3000/alerts/clear", json=payload)
+        except Exception as e:
+            logger.error(f"Failed to clear alert state: {e}")
 
     async def trigger_alert(self, record_id, current_price, reason, offset_triggered=None):
         logger.info(f"Triggering alert for {record_id} at {current_price} (offset {offset_triggered})")

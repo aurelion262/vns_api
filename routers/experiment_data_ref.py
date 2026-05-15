@@ -70,9 +70,9 @@ def company_events(symbol: str = Query(..., description="Mã chứng khoán")):
 @router.get("/company/margin_ratio")
 def company_margin_ratio(symbol: str = Query(..., description="Mã chứng khoán")):
     try:
-        return {"data": _clean_dataframe(KBSCompany(symbol.upper()).margin_ratio())}
+        return {"data": _clean_dataframe(VCICompany(symbol.upper()).margin_ratio())}
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Không có data từ nguồn dữ liệu gốc (KBS đang lỗi 404)")
+        raise HTTPException(status_code=500, detail="Không có data từ nguồn dữ liệu gốc (VCI đang lỗi)")
 
 # 2. Equity
 @router.get("/equity/list")
