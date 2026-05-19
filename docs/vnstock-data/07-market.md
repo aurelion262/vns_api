@@ -1,5 +1,7 @@
 # Market - Định Giá Thị Trường (P/E, P/B)
 
+> ⚠️ **Lưu ý Deprecation**: Các phương thức `pe()`, `pb()`, và `evaluation()` trong lớp `Market` đã bị đánh dấu là **deprecated** và sẽ bị loại bỏ vào ngày **31/08/2026**. Vui lòng chuyển sang sử dụng lớp `Analytics().valuation()` (xem hướng dẫn chi tiết bên dưới).
+
 Lớp `Market` cung cấp dữ liệu định giá thị trường theo thời gian.
 
 ## Khởi Tạo
@@ -28,7 +30,7 @@ market = Market(random_agent=True)
 
 ## Phương Thức
 
-### pe() - P/E Ratio Theo Thời Gian
+### pe() - P/E Ratio Theo Thời Gian (Deprecated)
 
 ```python
 # Lấy P/E 5 năm (mặc định)
@@ -60,7 +62,7 @@ reportDate
 2025-12-01  15.157115
 ```
 
-### pb() - P/B Ratio Theo Thời Gian
+### pb() - P/B Ratio Theo Thời Gian (Deprecated)
 
 ```python
 # Lấy P/B 5 năm (mặc định)
@@ -92,7 +94,7 @@ reportDate
 2025-12-01  2.064346
 ```
 
-### evaluation() - Lịch Sử Định Giá
+### evaluation() - Lịch Sử Định Giá (Deprecated)
 
 ```python
 # Lấy cả P/E và P/B 5 năm (mặc định)

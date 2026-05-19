@@ -12,6 +12,7 @@ Market()
 ├── .index(symbol)         # Thị trường chỉ số
 ├── .futures(symbol)       # Thị trường hợp đồng tương lai
 ├── .warrant(symbol)       # Thị trường chứng quyền
+├── .bond(symbol)          # Thị trường trái phiếu
 ├── .etf(symbol)           # Thị trường ETF
 ├── .fund(symbol)          # Thị trường quỹ đầu tư mở
 ├── .crypto(symbol)        # Tiền mã hoá
@@ -19,6 +20,31 @@ Market()
 ├── .commodity(symbol)     # Hàng hoá quốc tế
 └── .quote(symbols_list)   # Bảng giá nhiều mã
 ```
+
+## ⚙️ Cấu Trúc Tham Số (Parameters)
+
+Đa số các phương thức trong Market Layer đều tuân theo hệ thống tham số chuẩn hóa:
+
+### 1. Dữ liệu Lịch sử (Historical Data)
+Các hàm lấy chuỗi thời gian như `ohlcv()`, `trade_history()`, `foreign_flow()`, `proprietary_flow()`... hỗ trợ:
+- `start` (`str`): Ngày bắt đầu lấy dữ liệu (VD: `"2024-01-01"`).
+- `end` (`str`): Ngày kết thúc (VD: `"2024-12-31"`). Nếu bỏ trống sẽ lấy đến hiện tại.
+- `interval` (`str`, tuỳ chọn): Độ phân giải dữ liệu. Các giá trị hợp lệ:
+  - Khung ngày/tuần/tháng: `'1D'`, `'1W'`, `'1M'` (Mặc định thường là `'1D'`).
+  - Khung phút (Intraday): `'1m'`, `'5m'`, `'15m'`, `'1H'` (Chỉ khả dụng với tài khoản Premium/Pro tuỳ nguồn cung cấp).
+- `length` (`int` | `str`, tuỳ chọn): Số lượng nến/kỳ cần lấy ngược về quá khứ tính từ `end`. Có thể dùng thay cho `start` (VD: `100` nến, hoặc chuỗi thời gian như `"30D"`, `"1Y"`).
+
+### 2. Dữ liệu Chi tiết Giao dịch (Intraday / Trades)
+Các hàm lấy thông tin từng lệnh (Time & Sales) như `trades()`, `block_trades()`... hỗ trợ:
+- `limit` (`int`): Giới hạn số lượng lệnh trả về trên mỗi trang. Mặc định `1000`.
+- `page` (`int`): Số thứ tự trang cần truy xuất. Mặc định `1`.
+- `get_all` (`bool`): Nếu `True`, API sẽ tự động quét qua tất cả các trang để lấy toàn bộ dữ liệu lịch sử lệnh (cẩn trọng với mã thanh khoản lớn). Mặc định `False`.
+
+### 3. Dữ liệu Tức thời & Thống kê (Snapshot / Stats)
+Các hàm truy xuất trạng thái hiện tại như `quote()`, `order_book()`, `session_stats()`, `summary()`, `volume_profile()`, `odd_lot()`:
+- Hầu hết **không yêu cầu truyền tham số** thời gian. Dữ liệu trả về mặc định là snapshot tại thời điểm truy vấn hoặc thống kê tổng hợp của ngày giao dịch hiện hành.
+
+---
 
 ## 📋 Chi Tiết Các Domain
 
@@ -44,67 +70,88 @@ Market()
 | `volume_profile()` | Phân bố khối lượng theo giá | DataFrame |
 | `summary()` | Tổng hợp thông tin cổ phiếu | DataFrame |
 
-#### Ví Dụ
+#### 📝 Chi Tiết Các Phương Thức
 
+**1. Lịch sử Giá (`ohlcv`)**
+- **Mục đích:** Lấy dữ liệu giá mở, cao, thấp, đóng và khối lượng theo chuỗi thời gian để vẽ biểu đồ kỹ thuật.
 ```python
 from vnstock_data import Market
-
 mkt = Market()
 
-# ===== OHLCV Data (Giá & Khối lượng) =====
 df_ohlc = mkt.equity("VIC").ohlcv(
-    start="2026-02-01",
-    end="2026-03-01"
+    start="2026-02-01", 
+    end="2026-03-01",
+    interval="1D"
 )
-print(df_ohlc)
-# Columns: ['time', 'open', 'high', 'low', 'close', 'volume']
+```
 
-# ===== Lịch sử Thống kê Giao dịch =====
+**2. Thống kê Giao dịch Lịch sử (`trade_history`)**
+- **Mục đích:** Cung cấp dữ liệu thống kê tổng hợp cuối ngày về giá trị, khối lượng khớp lệnh và thỏa thuận.
+```python
 history_stats = mkt.equity("VIC").trade_history(
-    start="2026-02-01",
+    start="2026-02-01", 
     end="2026-03-01"
 )
-print(history_stats)
+```
 
-# ===== Intraday Trades (Chi tiết lệnh) =====
-df_trades = mkt.equity("TCB").trades()
-print(df_trades)
+**3. Khớp Lệnh Intraday (`trades`)**
+- **Mục đích:** Truy xuất danh sách các lệnh khớp chi tiết trong phiên (Time & Sales) để phân tích hành vi dòng tiền.
+```python
+df_trades = mkt.equity("TCB").trades(limit=100)
+```
 
-# ===== Order Book (Cấp độ mua/bán) =====
+**4. Sổ Lệnh (`order_book`)**
+- **Mục đích:** Xem thông tin các mức giá chờ mua/bán tốt nhất trên sổ lệnh (thường là 3-10 mức).
+```python
 df_orderbook = mkt.equity("VNM").order_book()
-print(df_orderbook)
+```
 
-# ===== Quote (Bảng giá) =====
+**5. Bảng Giá (`quote`)**
+- **Mục đích:** Lấy trạng thái giá và các chỉ số giao dịch realtime mới nhất, snapshot tức thời.
+```python
 quote = mkt.equity("HPG").quote()
-print(quote)
+```
 
-# ===== Thống kê Phiên (session_stats) =====
+**6. Thống kê Phiên (`session_stats`)**
+- **Mục đích:** Tổng hợp các chỉ số thanh khoản, trung bình lệnh, tỷ lệ mua/bán chủ động trong ngày.
+```python
 session = mkt.equity("VIC").session_stats()
-print(session)
+```
 
-# ===== Tổng hợp Cổ phiếu (summary) =====
+**7. Tổng Hợp Cổ Phiếu (`summary`)**
+- **Mục đích:** Các chỉ số định giá cơ bản (PE, PB), biên độ 52 tuần, số lượng cổ phiếu lưu hành, vốn hoá.
+```python
 summary_info = mkt.equity("VIC").summary()
-print(summary_info)
+```
 
-# ===== Dòng tiền Nước ngoài =====
+**8. Dòng Tiền Nước Ngoài (`foreign_flow`)**
+- **Mục đích:** Lịch sử thống kê khối lượng và giá trị mua/bán ròng của nhà đầu tư nước ngoài.
+```python
 foreign = mkt.equity("VIC").foreign_flow()
-print(foreign)
+```
 
-# ===== Dòng tiền Tự doanh =====
+**9. Dòng Tiền Tự Doanh (`proprietary_flow`)**
+- **Mục đích:** Lịch sử thống kê giao dịch của khối Tự doanh các Công ty Chứng khoán.
+```python
 proprietary = mkt.equity("VIC").proprietary_flow()
-print(proprietary)
+```
 
-# ===== Giao dịch Thỏa thuận =====
-blocks = mkt.equity("VIC").block_trades()
-print(blocks)
+**10. Giao Dịch Thỏa Thuận (`block_trades`)**
+- **Mục đích:** Thông tin các lệnh thỏa thuận khối lượng lớn được thực hiện ngoài sàn khớp lệnh liên tục.
+```python
+blocks = mkt.equity("VIC").block_trades(limit=50)
+```
 
-# ===== Giao dịch Lô lẻ =====
+**11. Giao Dịch Lô Lẻ (`odd_lot`)**
+- **Mục đích:** Thông tin các lệnh giao dịch có khối lượng dưới tiêu chuẩn lô chẵn (thường < 100 cổ phiếu).
+```python
 odds = mkt.equity("VIC").odd_lot()
-print(odds)
+```
 
-# ===== Volume Profile =====
+**12. Phân Bố Khối Lượng (`volume_profile`)**
+- **Mục đích:** Tổng hợp khối lượng giao dịch đã khớp tại từng mức giá cụ thể trong phiên.
+```python
 vol_profile = mkt.equity("VJC").volume_profile()
-print(vol_profile)
 ```
 
 ---
@@ -122,28 +169,30 @@ print(vol_profile)
 | `quote()` | Điểm chỉ số hiện tại | DataFrame |
 | `summary()` | Tổng hợp chỉ số | DataFrame |
 
-#### Ví Dụ
+#### 📝 Chi Tiết Các Phương Thức
 
+**1. Điểm Chỉ Số Lịch Sử (`ohlcv`)**
+- **Mục đích:** Lấy lịch sử biến động điểm số (mở, cao, thấp, đóng) của Index theo thời gian.
 ```python
 from vnstock_data import Market
-
 mkt = Market()
 
-# Lịch sử điểm VNIndex
 df_vnindex = mkt.index("VNINDEX").ohlcv(
     start="2026-01-01",
     end="2026-03-01"
 )
-print(df_vnindex)
-# Columns: ['time', 'open', 'high', 'low', 'close', 'volume']
+```
 
-# Điểm hiện tại
+**2. Điểm Hiện Tại (`quote`)**
+- **Mục đích:** Truy xuất điểm số realtime hoặc điểm chốt phiên gần nhất của chỉ số.
+```python
 quote_index = mkt.index("VNINDEX").quote()
-print(quote_index)
+```
 
-# Tổng hợp chỉ số
+**3. Tổng Hợp Chỉ Số (`summary`)**
+- **Mục đích:** Thống kê tổng quan trạng thái chỉ số (khối lượng, giá trị giao dịch toàn rổ, số mã tăng/giảm).
+```python
 summary_index = mkt.index("VNINDEX").summary()
-print(summary_index)
 ```
 
 ---
@@ -163,31 +212,41 @@ print(summary_index)
 | `order_book()` | Cấp độ mua/bán | DataFrame |
 | `summary()` | Thông tin hợp đồng | DataFrame |
 
-#### Ví Dụ
+#### 📝 Chi Tiết Các Phương Thức
 
+**1. Lịch sử Hợp đồng (`ohlcv`)**
+- **Mục đích:** Lấy dữ liệu nến lịch sử của hợp đồng phái sinh.
 ```python
 from vnstock_data import Market
-
 mkt = Market()
 
-# Lịch sử VN30F (truy cập trực tiếp, KHÔNG qua derivatives)
 df_vn30f = mkt.futures("VN30F2503").ohlcv(
     start="2026-02-01",
     end="2026-03-01"
 )
-print(df_vn30f)
+```
 
-# Giá hiện tại
+**2. Giá Hiện Tại (`quote`)**
+- **Mục đích:** Lấy giá khớp gần nhất, khối lượng mở (OI) và độ lệch (Basis) của hợp đồng realtime.
+```python
 quote_vn30f = mkt.futures("VN30F2503").quote()
-print(quote_vn30f)
+```
 
-# Lệnh giao dịch chi tiết
-trades_vn30f = mkt.futures("VN30F2503").trades()
+**3. Khớp Lệnh Intraday (`trades`)**
+- **Mục đích:** Danh sách chi tiết các lệnh khớp phái sinh trong phiên.
+```python
+trades_vn30f = mkt.futures("VN30F2503").trades(limit=100)
+```
 
-# Cấp độ mua/bán
+**4. Sổ Lệnh (`order_book`)**
+- **Mục đích:** Bảng giá các mức chờ mua/bán tốt nhất của hợp đồng.
+```python
 orderbook_vn30f = mkt.futures("VN30F2503").order_book()
+```
 
-# Tổng hợp hợp đồng
+**5. Thông tin Hợp đồng (`summary`)**
+- **Mục đích:** Cung cấp thông tin tổng quan, ngày đáo hạn, số lượng hợp đồng mở (OI).
+```python
 summary_vn30f = mkt.futures("VN30F2503").summary()
 ```
 
@@ -208,37 +267,86 @@ summary_vn30f = mkt.futures("VN30F2503").summary()
 | `order_book()` | Cấp độ mua/bán | DataFrame |
 | `summary()` | Thông tin chứng quyền | DataFrame |
 
-#### Ví Dụ
+#### 📝 Chi Tiết Các Phương Thức
 
+**1. Lịch sử Giá Chứng Quyền (`ohlcv`)**
+- **Mục đích:** Lấy dữ liệu nến lịch sử của mã chứng quyền.
 ```python
 from vnstock_data import Market
-
 mkt = Market()
 
-# Lịch sử giá warrant (truy cập trực tiếp)
 df_warrant = mkt.warrant("CACB2511").ohlcv(
     start="2026-02-01",
     end="2026-03-01"
 )
-print(df_warrant)
+```
 
-# Giá hiện tại warrant
+**2. Giá Hiện Tại (`quote`)**
+- **Mục đích:** Lấy thông tin giá khớp lệnh hiện tại và các thông số thanh khoản của chứng quyền.
+```python
 quote_warrant = mkt.warrant("CACB2511").quote()
-print(quote_warrant)
+```
 
-# Lệnh giao dịch chi tiết
-trades_warrant = mkt.warrant("CACB2511").trades()
+**3. Khớp Lệnh Intraday (`trades`)**
+- **Mục đích:** Truy xuất danh sách các lệnh khớp chi tiết trong phiên của chứng quyền.
+```python
+trades_warrant = mkt.warrant("CACB2511").trades(limit=100)
+```
 
-# Cấp độ mua/bán
+**4. Sổ Lệnh (`order_book`)**
+- **Mục đích:** Xem thông tin các mức giá chờ mua/bán tốt nhất.
+```python
 orderbook_warrant = mkt.warrant("CACB2511").order_book()
+```
 
-# Tổng hợp chứng quyền
+**5. Tổng hợp Chứng Quyền (`summary`)**
+- **Mục đích:** Các chỉ số cơ bản của chứng quyền (ngày đáo hạn, tỷ lệ chuyển đổi, giá thực hiện, tổ chức phát hành).
+```python
 summary_warrant = mkt.warrant("CACB2511").summary()
 ```
 
 ---
 
-### 5. ETF Market (Thị Trường ETF)
+### 5. Bond Market (Thị Trường Trái Phiếu)
+
+**Nguồn:** KBS (kbs)  
+**Registry Key:** `"market.bond"`
+
+#### Phương Thức
+
+| Method | Mô Tả | Return |
+|--------|------|--------|
+| `ohlcv()` | Giá trái phiếu lịch sử | DataFrame |
+| `quote()` | Giá hiện tại | DataFrame |
+| `trades()` | Giao dịch chi tiết | DataFrame |
+| `order_book()` | Cấp độ mua/bán | DataFrame |
+| `summary()` | Thông tin trái phiếu | DataFrame |
+
+#### 📝 Chi Tiết Các Phương Thức
+
+**1. Lịch sử Giá Trái Phiếu (`ohlcv`)**
+- **Mục đích:** Lấy dữ liệu biến động giá trị giao dịch trái phiếu lịch sử.
+```python
+from vnstock_data import Market
+mkt = Market()
+
+df_bond = mkt.bond("TD2444161").ohlcv(
+    start="2026-02-01",
+    end="2026-03-01"
+)
+```
+
+**2. Giá Hiện Tại (`quote`)**
+- **Mục đích:** Trạng thái giá khớp và thanh khoản realtime của trái phiếu.
+```python
+quote_bond = mkt.bond("TD2444161").quote()
+```
+
+*(Các phương thức khác như `trades()`, `order_book()`, `summary()` được sử dụng hoàn toàn tương tự như `Equity Market`)*
+
+---
+
+### 6. ETF Market (Thị Trường ETF)
 
 **Nguồn:** KBS (kbs), VCI (vci)  
 **Registry Key:** `"market.etf"`
@@ -247,28 +355,31 @@ summary_warrant = mkt.warrant("CACB2511").summary()
 
 Giống Equity Market (đầy đủ): `ohlcv()`, `trades()`, `order_book()`, `quote()`, `session_stats()`, `foreign_flow()`, `proprietary_flow()`, `block_trades()`, `odd_lot()`, `volume_profile()`, `summary()`.
 
-#### Ví Dụ
+#### 📝 Chi Tiết Các Phương Thức
 
+**1. Lịch sử Giá ETF (`ohlcv`)**
+- **Mục đích:** Lấy dữ liệu giá trị của chứng chỉ quỹ ETF trên sàn theo thời gian.
 ```python
 from vnstock_data import Market
-
 mkt = Market()
 
-# Lịch sử giá ETF
 df_etf = mkt.etf("E1VFVN30").ohlcv(
     start="2026-02-01",
     end="2026-03-01"
 )
-print(df_etf)
-
-# Giá hiện tại
-quote_etf = mkt.etf("E1VFVN30").quote()
-print(quote_etf)
 ```
+
+**2. Giá Hiện Tại (`quote`)**
+- **Mục đích:** Trạng thái giá khớp và thanh khoản realtime của ETF.
+```python
+quote_etf = mkt.etf("E1VFVN30").quote()
+```
+
+*(Các phương thức khác như `trades()`, `order_book()`, `summary()`, `session_stats()`, v.v. được sử dụng hoàn toàn tương tự như `Equity Market`)*
 
 ---
 
-### 6. Fund Market (Thị Trường Quỹ Đầu Tư Mở)
+### 7. Fund Market (Thị Trường Quỹ Đầu Tư Mở)
 
 **Nguồn:** FMarket (fmarket)  
 **Registry Key:** `"market.fund"`
@@ -282,29 +393,40 @@ print(quote_etf)
 | `industry_holding()` | Nắm giữ theo ngành | DataFrame |
 | `asset_holding()` | Nắm giữ theo loại tài sản | DataFrame |
 
-#### Ví Dụ
+#### 📝 Chi Tiết Các Phương Thức
 
+**1. Lịch sử NAV Quỹ (`history`)**
+- **Mục đích:** Lấy chuỗi dữ liệu lịch sử giá trị tài sản ròng (NAV) của quỹ để đánh giá hiệu suất.
+- **Tham số:** `limit` (`int`): Số lượng bản ghi giới hạn.
 ```python
 from vnstock_data import Market
-
 mkt = Market()
 
-# Lịch sử NAV quỹ
-df_nav = mkt.fund("VFIBS").history()
-print(df_nav)
+df_nav = mkt.fund("VFIBS").history(limit=100)
+```
 
-# Top cổ phiếu trong quỹ
+**2. Top Cổ Phiếu Nắm Giữ (`top_holding`)**
+- **Mục đích:** Liệt kê các cổ phiếu có tỷ trọng lớn nhất trong danh mục đầu tư của quỹ.
+- **Tham số:** `limit` (`int`): Số lượng cổ phiếu tối đa hiển thị (thường 10-20 mã).
+```python
 top_holding = mkt.fund("VFIBS").top_holding()
-print(top_holding)
+```
 
-# Nắm giữ theo ngành
+**3. Nắm Giữ Theo Ngành (`industry_holding`)**
+- **Mục đích:** Xem tỷ trọng phân bổ vốn của quỹ vào các lĩnh vực kinh tế (Bất động sản, Ngân hàng, Bán lẻ...).
+```python
 industry = mkt.fund("VFIBS").industry_holding()
-print(industry)
+```
+
+**4. Nắm Giữ Theo Loại Tài Sản (`asset_holding`)**
+- **Mục đích:** Xem tỷ trọng phân bổ tài sản (Cổ phiếu, Trái phiếu, Tiền mặt).
+```python
+asset = mkt.fund("VFIBS").asset_holding()
 ```
 
 ---
 
-### 7. Market Wide (Bảng Giá Nhiều Mã)
+### 8. Market Wide (Bảng Giá Nhiều Mã)
 
 **Nguồn:** KBS (kbs)
 
@@ -328,7 +450,7 @@ print(df_quotes)
 
 ---
 
-### 8. Thị Trường Quốc Tế (International Market)
+### 9. Thị Trường Quốc Tế (International Market)
 
 #### Crypto Market (Thị Trường Tiền Mã Hóa)
 

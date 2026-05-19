@@ -30,34 +30,57 @@ Reference()
 
 #### Phương Thức
 
-| Method | Tham Số | Mô Tả |
-|--------|---------|-------|
-| `info()` | - | Thông tin tổng quan công ty |
-| `shareholders()` | - | Danh sách cổ đông chính |
-| `officers()` | - | Danh sách quản lý cấp cao |
-| `subsidiaries()` | - | Danh sách công ty con |
-| `news()` | - | Tin tức công ty |
-| `events()` | - | Sự kiện công ty |
-| `margin_ratio()` | - | Tỷ lệ ký quỹ qua các broker |
+| Method           | Tham Số | Mô Tả                       |
+| ---------------- | ------- | --------------------------- |
+| `info()`         | -       | Thông tin tổng quan công ty |
+| `shareholders()` | -       | Danh sách cổ đông chính     |
+| `officers()`     | -       | Danh sách quản lý cấp cao   |
+| `subsidiaries()` | -       | Danh sách công ty con       |
+| `news()`         | -       | Tin tức công ty             |
+| `events()`       | -       | Sự kiện công ty             |
 
-#### Ví Dụ
 
+#### 📝 Chi Tiết Các Phương Thức
+
+**1. Thông tin tổng quan (`info`)**
+- **Mục đích:** Truy xuất hồ sơ cơ bản của doanh nghiệp, ngày niêm yết, số lượng cổ phiếu lưu hành.
 ```python
 from vnstock_data import Reference
-
 ref = Reference()
 
-# Thông tin công ty
 df_profile = ref.company("TCB").info()
-print(df_profile)
+```
 
-# Danh sách cổ đông lớn
+**2. Danh sách cổ đông (`shareholders`)**
+- **Mục đích:** Truy xuất danh sách và tỷ lệ sở hữu của các cổ đông lớn.
+```python
 df_shareholders = ref.company("VIC").shareholders()
-print(df_shareholders)
+```
 
-# Quản lý cấp cao
-df_officers = ref.company("HPG").officers()
-print(df_officers)
+**3. Ban lãnh đạo (`officers`)**
+- **Mục đích:** Lấy danh sách thành viên Hội đồng quản trị, Ban giám đốc.
+- **Tham số:** `filter_by` (`str`): `'working'` (đang làm việc - mặc định), `'resigned'` (đã nghỉ), hoặc `'all'`.
+```python
+df_officers = ref.company("HPG").officers(filter_by="working")
+```
+
+**4. Công ty con (`subsidiaries`)**
+- **Mục đích:** Tra cứu danh sách các công ty con, công ty liên kết của doanh nghiệp.
+- **Tham số:** `filter_by` (`str`): `'all'` (tất cả - mặc định), `'subsidiary'` (công ty con), hoặc `'affiliate'` (công ty liên kết).
+```python
+df_subs = ref.company("TCB").subsidiaries(filter_by="subsidiary")
+```
+
+**5. Tin tức (`news`)**
+- **Mục đích:** Danh sách các bài báo, tin tức mới nhất liên quan đến mã chứng khoán.
+```python
+df_news = ref.company("TCB").news()
+```
+
+**6. Sự kiện (`events`)**
+- **Mục đích:** Lấy các sự kiện trả cổ tức, họp đại hội cổ đông... của riêng mã chứng khoán đó.
+```python
+df_events = ref.company("TCB").events()
 ```
 
 ---
@@ -69,32 +92,44 @@ print(df_officers)
 
 #### Phương thức
 
-| Method | Tham Số | Mô Tả |
-|--------|---------|-------|
-| `list()` | - | Toàn bộ danh sách cổ phiếu |
-| `list_by_group()` | `group` | Cổ phiếu theo nhóm (VN30, HOSE...) |
-| `list_by_exchange()` | - | Cổ phiếu theo sàn (HSX, HNX...) |
-| `list_by_industry()` | - | Cổ phiếu theo ngành ICB |
+| Method               | Tham Số | Mô Tả                              |
+| -------------------- | ------- | ---------------------------------- |
+| `list()`             | -       | Toàn bộ danh sách cổ phiếu         |
+| `list_by_group()`    | `group` | Cổ phiếu theo nhóm (VN30, HOSE...) |
+| `list_by_exchange()` | -       | Cổ phiếu theo sàn (HSX, HNX...)    |
+| `list_by_industry()` | -       | Cổ phiếu theo ngành ICB            |
 
-#### Ví dụ
+#### 📝 Chi Tiết Các Phương Thức
 
+**1. Toàn bộ danh sách cổ phiếu (`list`)**
+- **Mục đích:** Tra cứu toàn bộ các mã cổ phiếu đang giao dịch trên thị trường.
 ```python
 from vnstock_data import Reference
-
 ref = Reference()
 
-# Tất cả symbol (1700+ mã)
 all_symbols = ref.equity.list()
-print(f"Total symbols: {len(all_symbols)}")
-# Columns: ['symbol', 'org_name']
+```
 
-# Cổ phiếu theo nhóm
+**2. Cổ phiếu theo nhóm (`list_by_group`)**
+- **Mục đích:** Liệt kê các cổ phiếu thuộc các rổ chỉ số phổ biến hoặc nhóm thị trường.
+- **Tham số:** `group` (`str`): Mã nhóm chỉ số (VD: `"VN30"`, `"HNX30"`, `"HOSE"`...).
+```python
 vn30 = ref.equity.list_by_group("VN30")
-print(vn30)
+```
 
-# Tất cả cổ phiếu organized by sàn
+**3. Cổ phiếu theo sàn (`list_by_exchange`)**
+- **Mục đích:** Trả về danh sách cổ phiếu được nhóm sẵn theo sàn giao dịch (HOSE, HNX, UPCOM).
+```python
 exchange_stocks = ref.equity.list_by_exchange()
-print(f"Total symbols across exchanges: {len(exchange_stocks)}")
+```
+
+**4. Cổ phiếu theo ngành (`list_by_industry`)**
+- **Mục đích:** Lọc cổ phiếu theo phân ngành ICB.
+- **Tham số:** 
+  - `icb_code` (`str`, optional): Mã ngành ICB (Ví dụ: `"8773"`). Nếu không truyền sẽ trả về tất cả.
+  - `lang` (`str`): Ngôn ngữ (`'vi'` hoặc `'en'`). Mặc định `'vi'`.
+```python
+icb_stocks = ref.equity.list_by_industry(icb_code="8355", lang="vi")
 ```
 
 ---
@@ -106,33 +141,40 @@ print(f"Total symbols across exchanges: {len(exchange_stocks)}")
 
 #### Phương thức
 
-| Method | Tham Số | Mô Tả |
-|--------|---------|-------|
-| `list()` | - | Toàn bộ danh sách chỉ số với metadata |
-| `groups()` | - | Liệt kê các nhóm chỉ số |
-| `members(group)` | `group` | Thành phần cổ phiếu của chỉ số |
-| `list_by_group(group)` | `group` | Chỉ số theo nhóm |
+| Method                 | Tham Số | Mô Tả                                 |
+| ---------------------- | ------- | ------------------------------------- |
+| `list()`               | -       | Toàn bộ danh sách chỉ số với metadata |
+| `groups()`             | -       | Liệt kê các nhóm chỉ số               |
+| `members(group)`       | `group` | Thành phần cổ phiếu của chỉ số        |
+| `list_by_group(group)` | `group` | Chỉ số theo nhóm                      |
 
-#### Ví dụ
+#### 📝 Chi Tiết Các Phương Thức
 
+**1. Liệt kê tất cả chỉ số (`list`)**
+- **Mục đích:** Liệt kê danh sách tất cả các chỉ số chuẩn (VN30, VN100, HNX30...) kèm theo metadata.
 ```python
 from vnstock_data import Reference
-
 ref = Reference()
 
-# Liệt kê tất cả chỉ số
 all_indices = ref.index.list()
-print(all_indices)
+```
 
-# Nhóm chỉ số
+**2. Nhóm chỉ số (`groups`)**
+- **Mục đích:** Danh sách các nhóm/bộ chỉ số đang được phân loại (VD: `HOSE Indices`, `Sector Indices`).
+```python
 groups = ref.index.groups()
-print(groups)
+```
 
-# Thành phần VN30
+**3. Thành phần chỉ số (`members`)**
+- **Mục đích:** Liệt kê các cổ phiếu cấu thành nên một chỉ số (VD: 30 mã trong VN30).
+- **Tham số:** `group` (`str`): Tên chỉ số (VD: `"VN30"`).
+```python
 vn30_members = ref.index.members("VN30")
-print(vn30_members)
+```
 
-# Chi tiết một chỉ số cụ thể
+**4. Chi tiết một chỉ số (`info`, `description`)**
+- **Mục đích:** Xem thông tin hoặc mô tả chi tiết của riêng một chỉ số bằng cách truyền thẳng mã vào domain.
+```python
 vn30_detail = ref.index("VN30")
 print(vn30_detail.info())
 print(vn30_detail.description())
@@ -147,25 +189,30 @@ print(vn30_detail.description())
 
 #### Phương thức
 
-| Method | Tham Số | Mô Tả |
-|--------|---------|-------|
-| `list()` | - | Toàn bộ danh sách ngành ICB |
-| `sectors()` | - | Phân loại cổ phiếu theo ngành |
+| Method      | Tham Số | Mô Tả                         |
+| ----------- | ------- | ----------------------------- |
+| `list()`    | -       | Toàn bộ danh sách ngành ICB   |
+| `sectors()` | -       | Phân loại cổ phiếu theo ngành |
 
-#### Ví dụ
+#### 📝 Chi Tiết Các Phương Thức
 
+**1. Toàn bộ ngành ICB (`list`)**
+- **Mục đích:** Tra cứu cây phân loại nhóm ngành chuẩn quốc tế ICB (từ level 1 đến level 4) dành cho thị trường Việt Nam.
+- **Tham số:** `lang` (`str`): Ngôn ngữ trả về (`'vi'` hoặc `'en'`). Mặc định `'vi'`.
 ```python
 from vnstock_data import Reference
-
 ref = Reference()
 
-# Toàn bộ ngành ICB
-industries = ref.industry.list()
-print(industries)
+industries = ref.industry.list(lang="vi")
+```
 
-# Cổ phiếu theo ngành
+**2. Phân loại cổ phiếu theo ngành (`sectors`)**
+- **Mục đích:** Liệt kê các mã cổ phiếu và mapping của chúng với các nhóm ngành ICB tương ứng.
+- **Tham số:**
+  - `icb_code` (`str`, optional): Lọc riêng một mã ngành cụ thể. Mặc định `None`.
+  - `lang` (`str`): Ngôn ngữ (`'vi'` hoặc `'en'`). Mặc định `'vi'`.
+```python
 sectors = ref.industry.sectors()
-print(sectors)
 ```
 
 ---
@@ -177,20 +224,20 @@ print(sectors)
 
 #### Phương thức
 
-| Method | Tham Số | Mô Tả |
-|--------|---------|-------|
-| `list()` | - | Danh sách quỹ đầu tư mở |
+| Method   | Tham Số | Mô Tả                   |
+| -------- | ------- | ----------------------- |
+| `list()` | -       | Danh sách quỹ đầu tư mở |
 
-#### Ví dụ
+#### 📝 Chi Tiết Các Phương Thức
 
+**1. Danh sách Quỹ Đầu Tư Mở (`list`)**
+- **Mục đích:** Tra cứu danh sách tất cả các quỹ mở (Mutual Funds) đang hoạt động trên FMarket.
+- **Tham số:** `fund_type` (`str`): Loại quỹ muốn lọc (VD: `"Cổ phiếu"`, `"Trái phiếu"`, `"Cân bằng"`). Để trống `""` sẽ lấy toàn bộ.
 ```python
 from vnstock_data import Reference
-
 ref = Reference()
 
-# Danh sách quỹ đầu tư mở
-funds = ref.fund.list()
-print(funds)
+funds = ref.fund.list(fund_type="")
 ```
 
 ---
@@ -202,20 +249,19 @@ print(funds)
 
 #### Phương thức
 
-| Method | Tham Số | Mô Tả |
-|--------|---------|-------|
-| `list()` | - | Danh sách tất cả ETF |
+| Method   | Tham Số | Mô Tả                |
+| -------- | ------- | -------------------- |
+| `list()` | -       | Danh sách tất cả ETF |
 
-#### Ví dụ
+#### 📝 Chi Tiết Các Phương Thức
 
+**1. Danh sách Quỹ ETF (`list`)**
+- **Mục đích:** Tra cứu danh sách tất cả các quỹ hoán đổi danh mục (ETF) đang niêm yết và giao dịch trên thị trường.
 ```python
 from vnstock_data import Reference
-
 ref = Reference()
 
-# Danh sách ETF
 etf_list = ref.etf.list()
-print(etf_list)
 ```
 
 ---
@@ -227,24 +273,24 @@ print(etf_list)
 
 #### Phương thức
 
-| Method | Tham Số | Mô Tả |
-|--------|---------|-------|
+| Method   | Tham Số     | Mô Tả                                                                     |
+| -------- | ----------- | ------------------------------------------------------------------------- |
 | `list()` | `bond_type` | Danh sách trái phiếu. `bond_type`: `'all'`, `'corporate'`, `'government'` |
 
-#### Ví dụ
+#### 📝 Chi Tiết Các Phương Thức
 
+**1. Danh sách Trái Phiếu (`list`)**
+- **Mục đích:** Liệt kê danh sách các mã trái phiếu (bao gồm cả trái phiếu chính phủ và doanh nghiệp).
+- **Tham số:** `bond_type` (`str`): Lọc loại trái phiếu (`'all'`, `'corporate'`, `'government'`). Mặc định `'all'`.
 ```python
 from vnstock_data import Reference
-
 ref = Reference()
 
-# Tất cả trái phiếu
+# Lấy toàn bộ danh sách trái phiếu
 all_bonds = ref.bond.list(bond_type="all")
-print(all_bonds)
 
-# Chỉ trái phiếu doanh nghiệp
+# Lọc riêng trái phiếu doanh nghiệp
 corp_bonds = ref.bond.list(bond_type="corporate")
-print(corp_bonds)
 ```
 
 ---
@@ -256,10 +302,10 @@ print(corp_bonds)
 
 #### Phương thức
 
-| Method | Tham Số | Mô Tả |
-|--------|---------|-------|
-| `calendar()` | `start`, `end`, `event_type` | Lịch sự kiện (cổ tức, ĐHCĐ, IPO...) |
-| `market()` | `start`, `end`, `event_type` | Sự kiện thị trường đặc biệt (nghỉ lễ, sự cố...) |
+| Method       | Tham Số                      | Mô Tả                                           |
+| ------------ | ---------------------------- | ----------------------------------------------- |
+| `calendar()` | `start`, `end`, `event_type` | Lịch sự kiện (cổ tức, ĐHCĐ, IPO...)             |
+| `market()`   | `start`, `end`, `event_type` | Sự kiện thị trường đặc biệt (nghỉ lễ, sự cố...) |
 
 **`event_type` cho `calendar()`:**
 - `'dividend'`: Cổ tức, phát hành cổ phiếu
@@ -267,26 +313,31 @@ print(corp_bonds)
 - `'agm'`: Đại hội cổ đông
 - `'others'`: Biến động khác
 
-#### Ví dụ
+#### 📝 Chi Tiết Các Phương Thức
 
+**1. Lịch sự kiện (`calendar`)**
+- **Mục đích:** Tra cứu lịch chi trả cổ tức, họp Đại hội đồng cổ đông, giao dịch nội bộ... theo thời gian.
+- **Tham số:** 
+  - `start`, `end` (`str`, optional): Khoảng thời gian lọc (`"YYYY-MM-DD"`).
+  - `event_type` (`str`, optional): Loại sự kiện (`"dividend"`, `"insider"`, `"agm"`, `"others"`).
 ```python
 from vnstock_data import Reference
-
 ref = Reference()
 
 # Lịch sự kiện tháng 3/2026
 events = ref.events.calendar(start="2026-03-01", end="2026-03-31")
-print(events)
 
 # Chỉ sự kiện cổ tức
 dividends = ref.events.calendar(
     start="2026-03-01", end="2026-03-31", event_type="dividend"
 )
-print(dividends)
+```
 
-# Sự kiện thị trường (nghỉ lễ, sự cố)
+**2. Sự kiện thị trường (`market`)**
+- **Mục đích:** Tra cứu danh sách các ngày nghỉ lễ, ngày hệ thống bảo trì hoặc sự cố gián đoạn giao dịch.
+- **Tham số:** `start`, `end` (`str`), `event_type` (`str`).
+```python
 market_events = ref.events.market()
-print(market_events)
 ```
 
 ---
@@ -298,8 +349,8 @@ print(market_events)
 
 #### Phương thức
 
-| Method | Tham Số | Mô Tả |
-|--------|---------|-------|
+| Method     | Tham Số                    | Mô Tả                                                      |
+| ---------- | -------------------------- | ---------------------------------------------------------- |
 | `symbol()` | `query`, `locale`, `limit` | Tìm kiếm symbol toàn cầu (cổ phiếu, crypto, forex, chỉ số) |
 
 **Parameters:**
@@ -307,26 +358,33 @@ print(market_events)
 - `locale` (str, optional): Ngôn ngữ/khu vực (ví dụ: "vi-vn", "en-us")
 - `limit` (int, optional): Số kết quả tối đa. Mặc định 10.
 
-#### Ví dụ
+#### 📝 Chi Tiết Các Phương Thức
 
+**1. Tìm kiếm symbol (`symbol`)**
+- **Mục đích:** Công cụ tìm kiếm toàn cầu cho phép gõ từ khoá linh hoạt (tên công ty, mã cổ phiếu, crypto, forex) để tìm mã ticker chính xác.
+- **Tham số:**
+  - `query` (`str`): Từ khóa (VD: `"VNM"`, `"Bitcoin"`, `"Gold"`).
+  - `locale` (`str`, optional): Vùng dữ liệu (VD: `"vi-vn"`, `"en-us"`).
+  - `limit` (`int`, optional): Giới hạn kết quả, mặc định `10`.
 ```python
 from vnstock_data import Reference
-
 ref = Reference()
 
 # Tìm kiếm "VNM"
 results = ref.search.symbol("VNM")
-print(results)
-# Columns: ['symbol', 'name', 'exchange', 'short_name', 
-#           'description', 'name_en', 'name_local', 'symbol_id']
 
 # Tìm kiếm Bitcoin
 btc = ref.search.symbol("Bitcoin", limit=5)
-print(btc)
 
 # Tìm kiếm vàng
 gold = ref.search.symbol("Gold", locale="en-us")
-print(gold)
+```
+
+**2. Tìm kiếm info (`info`)**
+- **Mục đích:** Tìm kiếm và trả về thông tin metadata chi tiết của tài sản toàn cầu.
+- **Tham số:** `query`, `locale`, `limit` tương tự như `symbol()`.
+```python
+asset_info = ref.search.info("Apple")
 ```
 
 > **Lưu ý**: `symbol_id` từ kết quả tìm kiếm có thể dùng cho các domain Market experimental (crypto, forex, commodity).
@@ -340,25 +398,26 @@ print(gold)
 
 #### Phương thức
 
-| Method | Tham Số | Mô Tả |
-|--------|---------|-------|
-| `list()` | - | Danh sách hợp đồng tương lai |
-| `info()` | - | Thông tin chi tiết hợp đồng (cần symbol) |
+| Method   | Tham Số | Mô Tả                                    |
+| -------- | ------- | ---------------------------------------- |
+| `list()` | -       | Danh sách hợp đồng tương lai             |
+| `info()` | -       | Thông tin chi tiết hợp đồng (cần symbol) |
 
-#### Ví dụ
+#### 📝 Chi Tiết Các Phương Thức
 
+**1. Danh sách Hợp Đồng Tương Lai (`list`)**
+- **Mục đích:** Lấy toàn bộ danh sách các hợp đồng tương lai đang giao dịch.
 ```python
 from vnstock_data import Reference
-
 ref = Reference()
 
-# Danh sách hợp đồng tương lai
 futures_list = ref.futures().list()
-print(futures_list)
+```
 
-# Thông tin chi tiết hợp đồng
+**2. Thông tin chi tiết Hợp Đồng (`info`)**
+- **Mục đích:** Truy xuất thông tin (ngày đáo hạn, mã cơ sở) của một hợp đồng cụ thể.
+```python
 futures_info = ref.futures("VN30F2503").info()
-print(futures_info)
 ```
 
 ---
@@ -370,25 +429,26 @@ print(futures_info)
 
 #### Phương Thức
 
-| Method | Tham Số | Mô Tả |
-|--------|---------|-------|
-| `list()` | - | Danh sách chứng quyền |
-| `info()` | - | Thông tin chi tiết chứng quyền (cần symbol) |
+| Method   | Tham Số | Mô Tả                                       |
+| -------- | ------- | ------------------------------------------- |
+| `list()` | -       | Danh sách chứng quyền                       |
+| `info()` | -       | Thông tin chi tiết chứng quyền (cần symbol) |
 
-#### Ví Dụ
+#### 📝 Chi Tiết Các Phương Thức
 
+**1. Danh sách Chứng Quyền (`list`)**
+- **Mục đích:** Lấy danh sách toàn bộ các chứng quyền có bảo đảm (Covered Warrant) trên thị trường.
 ```python
 from vnstock_data import Reference
-
 ref = Reference()
 
-# Danh sách chứng quyền
 warrant_list = ref.warrant().list()
-print(warrant_list)
+```
 
-# Thông tin chi tiết
+**2. Thông tin chi tiết Chứng Quyền (`info`)**
+- **Mục đích:** Xem thông tin tổ chức phát hành, tỷ lệ chuyển đổi, ngày đáo hạn, giá thực hiện.
+```python
 warrant_info = ref.warrant("CACB2511").info()
-print(warrant_info)
 ```
 
 > **Lưu ý**: `derivatives()` đã deprecated. Dùng `ref.futures()` / `ref.warrant()` trực tiếp.

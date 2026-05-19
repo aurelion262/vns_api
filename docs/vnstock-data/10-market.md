@@ -1,6 +1,6 @@
 # Market (Explorer Layer) - Đánh Giá Thị Trường
 
-> ⚠️ **Migration Notice**: Lớp `Market` cũ từ explorer layer sẽ chuyển đổi sang [Unified UI](./14-unified-ui.md) structure sau ngày **31/8/2026**. Vui lòng bắt đầu sử dụng cấu trúc mới: `Market().equity()` để truy cập dữ liệu thị trường, thay vì sử dụng các method trực tiếp trên lớp `Market` của explorer layer.
+> ⚠️ **Migration Notice**: Lớp `Market` cũ từ explorer layer sẽ chuyển đổi sang [Unified UI](./14-unified-ui.md) structure sau ngày **31/8/2026**. Vui lòng bắt đầu sử dụng cấu trúc mới của lớp `Analytics` để truy cập dữ liệu định giá thị trường, thay vì sử dụng các method trực tiếp trên lớp `Market` của explorer layer cũ.
 >
 > **Lưu ý**: Có sự xung đột tên không gian (namespace collision) giữa lớp `Market` của explorer layer cũ và lớp `Market` mới của Unified UI. Giới hạn truy cập chỉ được giữ cho đến 31/8/2026 để cho phép chuyển đổi dần dần.
 
@@ -29,10 +29,10 @@ from vnstock_data.api.market import Market
 market = Market()
 df = market.pe()
 
-# ✅ MỚI (sử dụng Unified UI)
-from vnstock_data import Market as UnifiedMarket
-market = UnifiedMarket()
-df = market.equity().valuation().pe()
+# ✅ MỚI (sử dụng Unified UI - Analytics Layer)
+from vnstock_data import Analytics
+analytics = Analytics()
+df = analytics.valuation(index="VNINDEX").pe()
 ```
 
 ### pb() - Tỷ Giá Giá/Sổ Sách
@@ -57,9 +57,9 @@ market = Market()
 df = market.pb()
 
 # ✅ MỚI
-from vnstock_data import Market as UnifiedMarket
-market = UnifiedMarket()
-df = market.equity().valuation().pb()
+from vnstock_data import Analytics
+analytics = Analytics()
+df = analytics.valuation(index="VNINDEX").pb()
 ```
 
 ### evaluation() - Đánh Giá Chung
@@ -86,9 +86,9 @@ market = Market()
 df = market.evaluation()
 
 # ✅ MỚI
-from vnstock_data import Market as UnifiedMarket
-market = UnifiedMarket()
-df = market.equity().valuation().all()  # Hoặc truy cập các metric riêng lẻ
+from vnstock_data import Analytics
+analytics = Analytics()
+df = analytics.valuation(index="VNINDEX").evaluation()
 ```
 
 ## Quy Trình Chuyển Đổi từ Explorer sang Unified UI
@@ -105,8 +105,8 @@ Unified UI tổ chức dữ liệu thành các lớp miền (Domain) theo chủ 
 # ❌ CŨ (Import từ API layer)
 from vnstock_data.api.market import Market
 
-# ✅ MỚI (Import từ UI layer)
-from vnstock_data import Market
+# ✅ MỚI (Import Analytics từ UI layer)
+from vnstock_data import Analytics
 ```
 
 ### Bước 3: Cập Nhật Gọi Hàm
@@ -119,10 +119,11 @@ pb_df = market.pb()
 eval_df = market.evaluation()
 
 # ✅ MỚI
-market = Market()
-pe_df = market.equity().valuation().pe()
-pb_df = market.equity().valuation().pb()
-eval_df = market.equity().valuation().all()
+from vnstock_data import Analytics
+analytics = Analytics()
+pe_df = analytics.valuation(index="VNINDEX").pe()
+pb_df = analytics.valuation(index="VNINDEX").pb()
+eval_df = analytics.valuation(index="VNINDEX").evaluation()
 ```
 
 ## Lịch Sử Phiên Bản

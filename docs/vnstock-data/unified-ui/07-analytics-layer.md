@@ -36,11 +36,11 @@ val = ana.valuation("VNINDEX")  # Cấu hình index mục tiêu (Mặc định: 
 
 #### Phương Thức
 
-| Method         | Tham Số    | Mô Tả                          | Return    |
-|----------------|------------|--------------------------------|-----------|
-| `pe()`         | `duration` | P/E ratio lịch sử               | DataFrame |
-| `pb()`         | `duration` | P/B ratio lịch sử               | DataFrame |
-| `evaluation()` | `duration` | Đánh giá tổng hợp (P/E + P/B)   | DataFrame |
+| Method         | Tham Số    | Mô Tả                         | Return    |
+| -------------- | ---------- | ----------------------------- | --------- |
+| `pe()`         | `duration` | P/E ratio lịch sử             | DataFrame |
+| `pb()`         | `duration` | P/B ratio lịch sử             | DataFrame |
+| `evaluation()` | `duration` | Đánh giá tổng hợp (P/E + P/B) | DataFrame |
 
 **Parameters:**
 - `index` (str) khi khởi tạo: Có thể chọn `"VNINDEX"`, `"HNX"`, `"VN30"`.

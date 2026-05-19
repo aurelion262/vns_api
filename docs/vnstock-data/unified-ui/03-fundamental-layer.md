@@ -20,6 +20,7 @@ Fundamental()
     ├── .cash_flow()         # Lưu chuyển tiền tệ
     ├── .ratio()             # Tỷ số tài chính
     ├── .note()              # Thuyết minh cơ cấu BCTC
+    ├── .filing()            # Hồ sơ & Tài liệu BCTC (PDF)
     └── .financial_health()  # Báo cáo hợp nhất với Auto Scorecard
 ```
 
@@ -27,59 +28,62 @@ Fundamental()
 
 ### 1. Income Statement (Báo Cáo Kết Quả Kinh Doanh)
 
-**Source:** KBS  
+**Source:** MAS  
 **Registry Key:** `"equity.fundamental.income_statement"`  
-**Tham số:** `limit` (int), `period_type` (1=Năm, 2=Quý), `lang` ("vi"/"en"), `scorecard`
+**Tham số:**
+- `period` (`str`): Kỳ báo cáo (`'year'` cho năm, `'quarter'` cho quý).
+- `lang` (`str`): Ngôn ngữ (`'vi'` hoặc `'en'`). Mặc định `'vi'`.
+- `dropna` (`bool`): Xoá các trường bị rỗng. Mặc định `True`.
 
 **Ví Dụ:**
 ```python
 from vnstock_data import Fundamental
 fun = Fundamental()
 
-# Báo cáo kết quả kinh doanh (4 kỳ gần nhất)
-df_income = fun.equity("TCB").income_statement(limit=4)
-print(df_income)
+# Báo cáo kết quả kinh doanh
+df_income = fun.equity("TCB").income_statement(period="year")
 ```
 
 ---
 
 ### 2. Balance Sheet (Cân Đối Kế Toán)
 
-**Source:** KBS  
+**Source:** MAS  
 **Registry Key:** `"equity.fundamental.balance_sheet"`  
+**Tham số:** Tương tự `income_statement` (`period`, `lang`, `dropna`).
 
 **Ví Dụ:**
 ```python
-# Cân đối kế toán dạng hàm tiện ích
-df_bs = fun.equity.balance_sheet("VIC", limit=4)
-print(df_bs)
+# Cân đối kế toán
+df_bs = fun.equity.balance_sheet("VIC", period="quarter")
 ```
 
 ---
 
 ### 3. Cash Flow (Lưu Chuyển Tiền Tệ)
 
-**Source:** KBS  
+**Source:** MAS  
 **Registry Key:** `"equity.fundamental.cash_flow"`  
+**Tham số:** Tương tự `income_statement`.
 
 **Ví Dụ:**
 ```python
-df_cf = fun.equity("VNM").cash_flow(limit=4)
-print(df_cf)
+df_cf = fun.equity("VNM").cash_flow(period="year")
 ```
 
 ---
 
 ### 4. Financial Ratio (Tỷ Số Tài Chính)
 
-**Source:** KBS  
+**Source:** MAS  
 **Registry Key:** `"equity.fundamental.ratio"`  
+**Tham số:** Tương tự `income_statement`.
 
 Chứa các tỷ số quan trọng như PE, PB, ROE, Debt/Equity.  
 
 **Ví Dụ:**
 ```python
-df_ratio = fun.equity("HPG").ratio(limit=4)
+df_ratio = fun.equity("HPG").ratio(period="quarter")
 ```
 
 ---
@@ -88,17 +92,51 @@ df_ratio = fun.equity("HPG").ratio(limit=4)
 
 **Source:** VCI  
 **Registry Key:** `"equity.fundamental.note"`  
+**Tham số:**
+- `period` (`str`, optional): Kỳ báo cáo.
+- `lang` (`str`): Ngôn ngữ (`'en'` hoặc `'vi'`). Mặc định `'en'`.
+- `mode` (`str`): Trạng thái bản báo cáo (mặc định `'final'`).
+- `style` (`str`): Cấu trúc format dữ liệu, mặc định `'readable'` cho định dạng dễ đọc.
+- `get_all` (`bool`): Lấy toàn bộ hay không. Mặc định `False`.
+- `dropna` (`bool`): Xóa trường rỗng. Mặc định `True`.
 
 Trích xuất tự động các thuyết minh con/ghi chú chi tiết đính kèm trên báo cáo tài chính hàng quý.
 
 **Ví Dụ:**
 ```python
-df_note = fun.equity("FPT").note()
+df_note = fun.equity("FPT").note(period="year", lang="vi")
 ```
 
 ---
 
-### 6. Financial Health (Bảng Tổng Hợp Scorecard)
+### 6. Filing (Hồ Sơ & Tài Liệu PDF)
+
+**Source:** MBK  
+**Registry Key:** `"equity.fundamental.filing"`  
+**Tham số:**
+- `doc_type` (`str`, optional): Phân loại tài liệu muốn lấy. Mặc định `None` (lấy tất cả). Các tuỳ chọn hợp lệ bao gồm:
+  - `'financial_report'`: Báo cáo tài chính
+  - `'annual_report'`: Báo cáo thường niên
+  - `'prospectus'`: Bản cáo bạch
+  - `'shareholder_resolution'`: Nghị quyết HĐCĐ
+  - `'shareholder_material'`: Tài liệu HĐCĐ
+  - `'business_explanation'`: Giải trình KQKD
+  - `'management_report'`: Báo cáo tình hình quản trị
+  - `'capital_adequacy'`: Báo cáo tỷ lệ an toàn vốn
+  - `'board_resolution'`: Nghị quyết HĐQT
+  - `'capital_safety'`: Tỷ lệ an toàn tài chính
+  - `'other'`: Khác
+
+Cung cấp đường dẫn tải trực tiếp đến các bản cáo bạch, báo cáo thường niên, file PDF BCTC.
+
+**Ví Dụ:**
+```python
+df_filing = fun.equity("TCB").filing()
+```
+
+---
+
+### 7. Financial Health (Bảng Tổng Hợp Scorecard)
 
 **Từ Vnstock 3.1.0, hàm này được trang bị nhằm đáp ứng nhu cầu khắt khe của Quant Trading và AI Model:**
 Thay vì để phơi nhiễm cấu trúc JSON thô tuỳ thích của nguồn cấp, `financial_health` sẽ:
@@ -128,11 +166,12 @@ df_tcb = fun.equity("TCB").financial_health(scorecard="banking", lang="en", limi
 ```python
 FUNDAMENTAL_SOURCES = {
     "equity.fundamental": {
-        "income_statement": ("kbs", "financial", "Finance", "income_statement"),
-        "balance_sheet": ("kbs", "financial", "Finance", "balance_sheet"),
-        "cash_flow": ("kbs", "financial", "Finance", "cash_flow"),
-        "ratio": ("kbs", "financial", "Finance", "ratio"),
-        "note": ("vci", "financial", "Finance", "note")
+        "income_statement": ("mas", "financial", "Finance", "income_statement"),
+        "balance_sheet":    ("mas", "financial", "Finance", "balance_sheet"),
+        "cash_flow":        ("mas", "financial", "Finance", "cash_flow"),
+        "ratio":            ("mas", "financial", "Finance", "ratio"),
+        "note":             ("vci", "financial", "Finance", "note"),
+        "filing":           ("mbk", "financial", "Finance", "document")
     }
 }
 ```

@@ -52,6 +52,21 @@ def company_news(symbol: str = Query(..., description="Mã chứng khoán")):
     try: return {"data": _clean_dataframe(VCICompany(symbol.upper()).news())}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/company/ownership")
+def company_ownership(symbol: str = Query(..., description="Mã chứng khoán")):
+    try: return {"data": _clean_dataframe(KBSCompany(symbol.upper()).ownership())}
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/company/insider_trading")
+def company_insider_trading(symbol: str = Query(..., description="Mã chứng khoán")):
+    try: return {"data": _clean_dataframe(KBSCompany(symbol.upper()).insider_trading())}
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/company/capital_history")
+def company_capital_history(symbol: str = Query(..., description="Mã chứng khoán")):
+    try: return {"data": _clean_dataframe(KBSCompany(symbol.upper()).capital_history())}
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/company/events")
 def company_events(symbol: str = Query(..., description="Mã chứng khoán")):
     try: 
@@ -171,6 +186,13 @@ def search_symbol(
     limit: int = Query(10, description="Limit")
 ):
     try: return {"data": _clean_dataframe(get_ref().search.symbol(query=query, locale=locale, limit=limit))}
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/search/info")
+def search_info(
+    query: str = Query(..., description="Search term"),
+):
+    try: return {"data": _clean_dataframe(get_ref().search.info(query=query))}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 # 10. Futures

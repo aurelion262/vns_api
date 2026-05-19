@@ -61,40 +61,44 @@ df_gdp_q = mac.economy().gdp(
     end="2026-03",
     period="quarter"
 )
-df_gdp_q
-
-# GDP năm
-df_gdp_y = mac.economy().gdp(period="year")
-df_gdp_y
+print(df_gdp_q.head(1))
+# Output:
+# | last_updated | group_name | name | value | unit | source | report_type |
+# |:---|:---|:---|---:|:---|:---|:---|
+# | 2025-01-05 | Cơ cấu GDP theo giá hiện tại | Nông nghiệp | 12.59 | % | Tổng cục thống kê | Quý 4 |
 
 # ===== CPI (Chỉ Số Giá) =====
 # CPI theo tháng
 df_cpi = mac.economy().cpi(period="month", length=24)  # 24 tháng gần nhất
-df_cpi
+print(df_cpi.head(1))
+# Output:
+# | last_updated | name | value | unit | source |
+# |:---|:---|---:|:---|:---|
+# | 2025-09-05 | Chỉ số giá tiêu dùng | 0.05 | % | Tổng cục thống kê |
 
 # ===== Industrial Production (Sản Xuất Công Nghiệp) =====
 df_ind = mac.economy().industry_prod(period="month", length=12)
-df_ind
+print(df_ind.head(1))
 
 # ===== Import-Export (Xuất Nhập Khẩu) =====
 df_trade = mac.economy().import_export(period="month")
-df_trade
 
 # ===== Retail Sales (Bán Lẻ) =====
 df_retail = mac.economy().retail(period="month")
-df_retail
 
 # ===== FDI (Đầu Tư Trực Tiếp) =====
 df_fdi = mac.economy().fdi(period="month")
-df_fdi
+print(df_fdi.head(1))
+# Output:
+# | last_updated | group_name | name | value | unit | source |
+# |:---|:---|:---|---:|:---|:---|
+# | 2026-05-03 | Tổng FDI | Giải ngân | 1.99 | Tỷ USD | Cục Đầu tư nước ngoài |
 
 # ===== Money Supply (Cung Tiền) =====
 df_money = mac.economy().money_supply(period="month")
-df_money
 
 # ===== Population & Labor (Dân Số & Lao Động) =====
 df_labor = mac.economy().population_labor(period="year")
-df_labor
 ```
 
 ---
@@ -211,49 +215,59 @@ print(df_gold_vn[['report_time', 'price']].tail())
 
 # Giá vàng quốc tế (GC=F)
 df_gold_global = mac.commodity().gold(market="GLOBAL")
-print(df_gold_global[['report_time', 'price']])  # USD/troy oz
+print(df_gold_global.head(1))  # OHLCV DataFrame
+# Output:
+# |   open |   high |   low |   close |   volume |
+# |-------:|-------:|------:|--------:|---------:|
+# | 4654.5 | 4670.1 |  4611 |  4617.6 |    26755 |
 
 # ===== Gas / Petrol (Xăng Dầu) =====
 # Giá xăng lẻ trong nước
 df_gas_vn = mac.commodity().gas(market="VN")
-print(df_gas_vn[['report_time', 'ron92_price', 'do_price']])
+print(df_gas_vn.head(1))
+# Output:
+# |   ron95 |   ron92 |   oil_do |
+# |--------:|--------:|---------:|
+# |   24.97 |   23.13 |    28.48 |
 
 # Giá khí tự nhiên quốc tế
 df_gas_global = mac.commodity().gas(market="GLOBAL")
-print(df_gas_global[['report_time', 'price']])  # USD/MMBtu
+print(df_gas_global.head(1))  # USD/MMBtu (OHLCV)
 
 # ===== Crude Oil (Dầu Thô) =====
-# Giá dầu thô WTI & Brent
+# Giá dầu thô WTI
 df_oil = mac.commodity().oil_crude()
-print(df_oil[['report_time', 'brent', 'wti']])
-#      report_time   brent    wti
-# 0    2026-03-06   90.50  85.25
+print(df_oil.head(1))
+# Output:
+# |  open |  high |   low | close | volume |
+# |------:|------:|------:|------:|-------:|
+# | 97.71 | 98.73 | 97.23 | 98.36 |  10146 |
 
 # ===== Coke (Than Cốc) =====
 df_coke = mac.commodity().coke()
-print(df_coke[['report_time', 'price']])
+print(df_coke.head(1))
 
 # ===== Steel (Thép) =====
 # Thép trong nước
 df_steel_vn = mac.commodity().steel(market="VN")
-print(df_steel_vn[['report_time', 'price']])
+print(df_steel_vn.head(1))
 
 # Thép quốc tế (HRC)
 df_steel_global = mac.commodity().steel(market="GLOBAL")
-print(df_steel_global[['report_time', 'price']])  # USD/tấn
+print(df_steel_global.head(1))  # USD/tấn (OHLCV)
 
 # ===== Iron Ore (Quặng Sắt) =====
 df_ore = mac.commodity().iron_ore()
-print(df_ore[['report_time', 'price']])  # USD/tấn
+print(df_ore.head(1))  # USD/tấn (OHLCV)
 
 # ===== Nông Sản (Crops) =====
 # Giá đậu tương (Soybean)
 df_soy = mac.commodity().soybean()
-print(df_soy[['report_time', 'price']])  # USD/bushel
+print(df_soy.head(1))  # USD/bushel (OHLCV)
 
 # Giá ngô (Corn)
 df_corn = mac.commodity().corn()
-print(df_corn[['report_time', 'price']])
+print(df_corn.head(1))
 
 # Giá đường (Sugar)
 df_sugar = mac.commodity().sugar()

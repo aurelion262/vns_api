@@ -12,6 +12,7 @@ from routers.experiment_data_insights import router as experiment_data_insights_
 from routers.experiment_data_analytics import router as experiment_data_analytics_router
 from routers.experiment_data_schema import router as experiment_data_schema_router
 from routers.experiment_ta import router as experiment_ta_router
+from routers.experiment_data_retail import router as experiment_data_retail_router
 
 app = FastAPI(title="Vnstock API Server", description="API server for vnstock_data (Paid Version)")
 
@@ -51,7 +52,7 @@ app.include_router(experiment_data_insights_router)
 app.include_router(experiment_data_analytics_router)
 app.include_router(experiment_data_schema_router)
 app.include_router(experiment_ta_router)
-
+app.include_router(experiment_data_retail_router)
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(streamer.start())

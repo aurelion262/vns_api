@@ -50,12 +50,14 @@ from vnstock_data import Insights
 ins = Insights()
 
 # ===== Top Gainer (Tăng Giá) =====
-df_gainers = ins.ranking().gainer()
-print(df_gainers)
-
 # Top gainer sàn VNINDEX
-df_gainers_vn = ins.ranking().gainer(index='VNINDEX', limit=10)
+df_gainers_vn = ins.ranking().gainer(index='VNINDEX', limit=1)
 print(df_gainers_vn)
+```
+| symbol | exchange | last_price | last_updated | price_change_1d | price_change_pct_1d | total_value | avg_volume_20d | volume_spike_20d_pct |
+|:---|:---|---:|:---|---:|---:|---:|---:|---:|
+| HID | HOSE | 4.65 | 2026-05-15 10:38 | 0.3 | 6.89655 | 7.35031e+08 | 446655 | 35.9562 |
+
 
 # ===== Top Loser (Giảm Giá) =====
 df_losers = ins.ranking().loser()
@@ -65,10 +67,16 @@ print(df_losers)
 df_volume = ins.ranking().volume()
 print(df_volume)
 
+```python
 # ===== Foreign Flow (Nước Ngoài Mua) =====
-df_foreign_buy = ins.ranking().foreign_buy()
+df_foreign_buy = ins.ranking().foreign_buy(limit=1)
 print(df_foreign_buy)
+```
+| symbol | date | net_value |
+|:---|:---|---:|
+| TCB | 2026-05-15 | 4.11252e+10 |
 
+```python
 # ===== Foreign Sell (Nước Ngoài Bán) =====
 df_foreign_sell = ins.ranking().foreign_sell()
 print(df_foreign_sell)
@@ -228,10 +236,14 @@ print(f"Total stocks: {len(df_all)}")
 
 # Lọc thủ công bằng Pandas
 cheap_good = df_all[
-    (df_all['ttm_pe'] < 10) & (df_all['ttm_roe'] > 15)
+    (df_all['pe'] < 10) & (df_all['roe'] > 15)
 ]
-print(cheap_good[['ticker', 'ttm_pe', 'ttm_roe']].head())
+print(cheap_good[['symbol', 'pe', 'roe']].head())
 ```
+
+| symbol | exchange | ref_price | ceiling | price | floor | accumulated_value | accumulated_volume | market_cap | price_change_percent | avg_value_30d | avg_value_10d | avg_volume_30d | est_volume | volume_breakout_30d | pe | pb | roe | profit_growth_yoy | revenue_growth_yoy | net_margin | gross_margin |
+|:---|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| ABB | UPCOM | 15200 | 17400 | 15200 | 13000 | 1.65051e+09 | 107900 | 1.57326e+13 | 0 | 1.23616e+10 | -86.8034 | 831840 | 302733 | -63.6068 | 4.69571 | 0.986995 | 21.1886 | 260.74 | 49.4604 | 34.5488 | 68.6208 |
 
 ---
 
