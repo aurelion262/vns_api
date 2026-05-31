@@ -138,9 +138,30 @@ class AppStreamer:
         self.refresh_event.set()
         logger.info("Force refresh triggered")
 
+    def _is_trading_time(self):
+        """Check if current time is within Vietnam stock market trading hours."""
+        try:
+            from vnstock_pipeline.stream.utils.market_hours import trading_hours
+            status = trading_hours(self.client.market)
+            return status.get('is_trading_hour', False)
+        except Exception:
+            # Fallback: manual check for Vietnam market hours (UTC+7)
+            from datetime import timezone, timedelta
+            vn_tz = timezone(timedelta(hours=7))
+            now = datetime.now(vn_tz)
+            if now.weekday() >= 5:  # Saturday=5, Sunday=6
+                return False
+            t = now.hour * 60 + now.minute
+            return (540 <= t <= 690) or (780 <= t <= 900)  # 9:00-11:30, 13:00-15:00
+
     async def update_loop(self):
         async with aiohttp.ClientSession() as session:
             while self.running:
+                if not self._is_trading_time():
+                    self.refresh_event.clear()
+                    await asyncio.sleep(60)
+                    continue
+
                 try:
                     async with session.get("http://127.0.0.1:3000/alerts/rules") as resp:
                         if resp.status == 200:
