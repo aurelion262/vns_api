@@ -16,62 +16,76 @@ class AlertProcessor(DataProcessor):
 
     def update_rules(self, new_rules):
         self.rules = new_rules
-        rule_ids = {r['id'] for r in new_rules}
-        stale_keys = [k for k in self.state.keys() if k not in rule_ids]
-        for k in stale_keys:
-            del self.state[k]
+        new_state = {}
+        for rule in new_rules:
+            rule_id = rule['id']
+            triggered_state = rule.get('triggeredState') or {}
+            # Sync lastOffset từ database state
+            new_state[rule_id] = triggered_state.get('lastOffset')
+        self.state = new_state
         logger.info(f"Updated rules, active count: {len(self.rules)}")
 
     async def process(self, data):
         symbol = data.get('symbol')
-        price = data.get('price') or data.get('close_price') or data.get('closePrice')
-        
+        price = data.get('last_price') or data.get('price') or data.get('close_price') or data.get('closePrice')
+
         if not price:
-            price = data.get('referencePrice') or data.get('reference_price') or data.get('refPrice')
+            price = data.get('reference_price') or data.get('referencePrice') or data.get('refPrice')
 
         if not symbol or not price:
             return
-            
-        price = price / 1000
+
+        try:
+            price = float(price) / 1000
+        except (TypeError, ValueError):
+            return
 
         for rule in self.rules:
             if rule['symbol'] != symbol:
                 continue
 
-            rule_id = rule['id']
-            condition = rule.get('condition')
-            target = rule.get('targetPrice')
-            offsets = rule.get('offsets', [])
-            
-            if target is None or not condition:
-                continue
-                
-            best_offset = None
+            try:
+                rule_id = rule['id']
+                condition = rule.get('condition')
+                target = rule.get('targetPrice')
+                offsets = rule.get('offsets', [])
 
-            if condition == '>=':
-                # highest target first
-                sorted_offsets = sorted(offsets, reverse=True)
-                for off in sorted_offsets:
-                    if price >= target * (1 + off / 100):
-                        best_offset = off
-                        break
-            else: # '<='
-                # lowest target first
-                sorted_offsets = sorted(offsets)
-                for off in sorted_offsets:
-                    if price <= target * (1 + off / 100):
-                        best_offset = off
-                        break
-                        
-            last_offset = self.state.get(rule_id)
-            
-            if best_offset != last_offset:
-                if best_offset is not None:
-                    reason = "Streamer trigger"
-                    await self.trigger_alert(rule_id, price, reason, best_offset)
-                else:
-                    await self.clear_alert(rule_id)
-                self.state[rule_id] = best_offset
+                if target is None or not condition:
+                    continue
+
+                try:
+                    target = float(target)
+                except (TypeError, ValueError):
+                    continue
+
+                best_offset = None
+
+                if condition == '>=':
+                    # highest target first
+                    sorted_offsets = sorted(offsets, reverse=True)
+                    for off in sorted_offsets:
+                        if price >= target * (1 + off / 100):
+                            best_offset = off
+                            break
+                else: # '<='
+                    # lowest target first
+                    sorted_offsets = sorted(offsets)
+                    for off in sorted_offsets:
+                        if price <= target * (1 + off / 100):
+                            best_offset = off
+                            break
+
+                last_offset = self.state.get(rule_id)
+
+                if best_offset != last_offset:
+                    if best_offset is not None:
+                        reason = "Streamer trigger"
+                        await self.trigger_alert(rule_id, price, reason, best_offset)
+                    else:
+                        await self.clear_alert(rule_id)
+                    self.state[rule_id] = best_offset
+            except Exception as e:
+                logger.error(f"Error processing rule {rule.get('id')}: {e}")
 
     async def clear_alert(self, record_id):
         logger.info(f"Clearing alert state for {record_id}")
@@ -98,9 +112,19 @@ class AlertProcessor(DataProcessor):
         except Exception as e:
             logger.error(f"Failed to trigger alert: {e}")
 
+class PatchedWSSClient(WSSClient):
+    def subscribe_symbols(self, symbols):
+        self.clear_raw_messages()
+        symbol_str = ','.join(symbols)
+        msg = f'42["regs","{{\\"action\\":\\"join\\",\\"list\\":\\"{symbol_str}\\"}}"]'
+        self.add_raw_message(msg)
+        logger.info(f"Added subscription for symbols: {symbol_str}")
+        if self.is_connected():
+            asyncio.create_task(self.send_message(msg))
+
 class AppStreamer:
     def __init__(self):
-        self.client = WSSClient()
+        self.client = PatchedWSSClient()
         self.processor = AlertProcessor()
         self.client.add_processor(self.processor)
         self.symbols = set()
@@ -148,15 +172,31 @@ class AppStreamer:
             self.connected_since = datetime.utcnow().isoformat()
             logger.info("Streamer connected and healthy")
             await self.client.connect()
+            if getattr(self.client, 'session_manager', None):
+                asyncio.create_task(self.client.start_session_monitoring())
         except Exception as e:
             self.is_healthy = False
             self.connected_since = None
             logger.error(f"Streamer disconnected: {e}")
 
     def get_health(self):
+        is_connected = self.client.is_connected()
+        healthy = self.is_healthy
+        
+        if healthy and getattr(self.client, 'session_manager', None):
+            try:
+                from vnstock_pipeline.stream.utils.market_hours import trading_hours
+                status = trading_hours(self.client.market)
+                is_trading = status.get('is_trading_hour', False)
+                if is_trading and not is_connected:
+                    healthy = False
+            except Exception as e:
+                logger.error(f"Error checking market hours in health check: {e}")
+                
         return {
-            "healthy": self.is_healthy,
+            "healthy": healthy,
             "connected_since": self.connected_since,
             "symbols_count": len(self.symbols),
             "rules_count": len(self.processor.rules),
+            "client_connected": is_connected,
         }
