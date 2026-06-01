@@ -1,6 +1,7 @@
 import asyncio
 import aiohttp
 import logging
+import os
 from datetime import datetime
 from vnstock_pipeline.stream import WSSClient
 from vnstock_pipeline.stream.processors import DataProcessor
@@ -103,7 +104,8 @@ class AlertProcessor(DataProcessor):
         try:
             async with aiohttp.ClientSession() as session:
                 payload = {"recordId": record_id}
-                await session.post("http://127.0.0.1:3000/alerts/clear", json=payload)
+                headers = self._get_internal_headers()
+                await session.post("http://127.0.0.1:3000/alerts/clear", json=payload, headers=headers)
         except Exception as e:
             logger.error(f"Failed to clear alert state: {e}")
 
@@ -121,9 +123,17 @@ class AlertProcessor(DataProcessor):
                 if reference_price is not None:
                     payload["referencePrice"] = reference_price
                     
-                await session.post("http://127.0.0.1:3000/alerts/trigger", json=payload)
+                headers = self._get_internal_headers()
+                await session.post("http://127.0.0.1:3000/alerts/trigger", json=payload, headers=headers)
         except Exception as e:
             logger.error(f"Failed to trigger alert: {e}")
+
+    @staticmethod
+    def _get_internal_headers():
+        api_key = os.environ.get("INTERNAL_API_KEY")
+        if api_key:
+            return {"X-API-Key": api_key}
+        return {}
 
 class PatchedWSSClient(WSSClient):
     def subscribe_symbols(self, symbols):
@@ -176,7 +186,8 @@ class AppStreamer:
                     continue
 
                 try:
-                    async with session.get("http://127.0.0.1:3000/alerts/rules") as resp:
+                    headers = AlertProcessor._get_internal_headers()
+                    async with session.get("http://127.0.0.1:3000/alerts/rules", headers=headers) as resp:
                         if resp.status == 200:
                             rules = await resp.json()
                             self.processor.update_rules(rules)

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, Depends, Header
 from vnstock_data import Market
 import pandas as pd
 import asyncio
@@ -53,11 +53,21 @@ app.include_router(experiment_data_analytics_router)
 app.include_router(experiment_data_schema_router)
 app.include_router(experiment_ta_router)
 app.include_router(experiment_data_retail_router)
+
+# ─── API Key auth for internal service endpoints ─────────────
+def verify_api_key(x_api_key: str = Header(None)):
+    """Verify X-API-Key header for internal service communication."""
+    expected_key = os.environ.get("INTERNAL_API_KEY")
+    if not expected_key:
+        return  # Dev mode: no API key required
+    if x_api_key != expected_key:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(streamer.start())
 
-@app.get("/api/v1/quotes")
+@app.get("/api/v1/quotes", dependencies=[Depends(verify_api_key)])
 def get_quotes(symbols: str = Query(..., description="Comma separated list of stock symbols, e.g., TCB,VIC,HPG")):
     try:
         # Parse symbols
@@ -85,13 +95,13 @@ def get_quotes(symbols: str = Query(..., description="Comma separated list of st
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/streamer/refresh")
+@app.post("/streamer/refresh", dependencies=[Depends(verify_api_key)])
 def refresh_streamer():
     """Signal the streamer to refresh rules immediately."""
     streamer.force_refresh()
     return {"success": True, "message": "Refresh signal sent"}
 
-@app.get("/streamer/health")
+@app.get("/streamer/health", dependencies=[Depends(verify_api_key)])
 def streamer_health():
     """Check WebSocket streamer health status."""
     return streamer.get_health()
