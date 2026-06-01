@@ -36,9 +36,20 @@ class AlertProcessor(DataProcessor):
             return
 
         try:
-            price = float(price) / 1000
+            # WebSocket data from VPS already comes in thousands (nghìn đồng)
+            # e.g. lastPrice=25.5 means 25,500 VND — do NOT divide by 1000
+            price = float(price)
         except (TypeError, ValueError):
             return
+
+        # Get reference price for alert messages (also in nghìn đồng from WebSocket)
+        ref_price = None
+        ref_raw = data.get('reference_price') or data.get('referencePrice') or data.get('refPrice')
+        if ref_raw:
+            try:
+                ref_price = float(ref_raw)
+            except (TypeError, ValueError):
+                pass
 
         for rule in self.rules:
             if rule['symbol'] != symbol:
@@ -80,7 +91,7 @@ class AlertProcessor(DataProcessor):
                 if best_offset != last_offset:
                     if best_offset is not None:
                         reason = "Streamer trigger"
-                        await self.trigger_alert(rule_id, price, reason, best_offset)
+                        await self.trigger_alert(rule_id, price, reason, best_offset, ref_price)
                     else:
                         await self.clear_alert(rule_id)
                     self.state[rule_id] = best_offset
@@ -96,7 +107,7 @@ class AlertProcessor(DataProcessor):
         except Exception as e:
             logger.error(f"Failed to clear alert state: {e}")
 
-    async def trigger_alert(self, record_id, current_price, reason, offset_triggered=None):
+    async def trigger_alert(self, record_id, current_price, reason, offset_triggered=None, reference_price=None):
         logger.info(f"Triggering alert for {record_id} at {current_price} (offset {offset_triggered})")
         try:
             async with aiohttp.ClientSession() as session:
@@ -107,6 +118,8 @@ class AlertProcessor(DataProcessor):
                 }
                 if offset_triggered is not None:
                     payload["offsetTriggered"] = offset_triggered
+                if reference_price is not None:
+                    payload["referencePrice"] = reference_price
                     
                 await session.post("http://127.0.0.1:3000/alerts/trigger", json=payload)
         except Exception as e:
