@@ -135,12 +135,139 @@ class PatchedWSSClient(WSSClient):
         if self.is_connected():
             asyncio.create_task(self.send_message(msg))
 
+class ChartCandle:
+    """In-progress 1m candle cho chart realtime. Ponytail: KHÔNG bucket lại,
+    chỉ update last bar close=last_price + track high/low. Khi time > bucket_end → new bar."""
+    __slots__ = ('time', 'open', 'high', 'low', 'close', 'volume')
+
+    def __init__(self, time, price, volume=0):
+        self.time = time
+        self.open = price
+        self.high = price
+        self.low = price
+        self.close = price
+        self.volume = volume
+
+    def update(self, price, volume=0):
+        self.close = price
+        if price > self.high: self.high = price
+        if price < self.low: self.low = price
+        self.volume += volume
+
+    def to_dict(self):
+        return {'time': self.time, 'open': self.open, 'high': self.high,
+                'low': self.low, 'close': self.close, 'volume': self.volume}
+
+
+class ChartProcessor(DataProcessor):
+    """Consume tick → update ChartCandle per symbol → notify WS subscriber queues.
+    Ponytail: 1-minute bucket fixed (interval='1m' cho chart realtime). Tick→candle đơn giản:
+    seed bar đầu, mỗi tick update last bar; khi minute đổi → new bar."""
+
+    BUCKET_SECONDS = 60  # 1m fixed cho chart realtime
+
+    def __init__(self):
+        super().__init__()
+        # symbol -> ChartCandle (last bar hiện tại)
+        self.candles: dict[str, ChartCandle] = {}
+        # symbol -> set[asyncio.Queue] (mỗi WS subscriber 1 queue)
+        self.subscribers: dict[str, set] = {}
+
+    def subscribe(self, symbol: str) -> asyncio.Queue:
+        """WS route gọi khi client connect. Trả queue để đọc candle updates."""
+        symbol = symbol.upper()
+        q = asyncio.Queue(maxsize=100)
+        self.subscribers.setdefault(symbol, set()).add(q)
+        logger.info(f"Chart WS subscriber added for {symbol}, total: {len(self.subscribers.get(symbol, set()))}")
+        return q
+
+    def unsubscribe(self, symbol: str, q: asyncio.Queue):
+        """WS route gọi khi client disconnect."""
+        symbol = symbol.upper()
+        if symbol in self.subscribers:
+            self.subscribers[symbol].discard(q)
+            if not self.subscribers[symbol]:
+                del self.subscribers[symbol]
+                # Clear candle state khi không còn subscriber
+                self.candles.pop(symbol, None)
+
+    async def seed_candle(self, symbol: str):
+        """Seed last 1m bar từ REST ohlcv (gọi 1 lần khi subscribe mới)."""
+        symbol = symbol.upper()
+        try:
+            from vnstock_data import Market
+            from datetime import datetime, timezone, timedelta
+            vn_tz = timezone(timedelta(hours=7))
+            now = datetime.now(vn_tz)
+            end = now.strftime('%Y-%m-%d %H:%M:%S')
+            start = (now - timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
+            df = Market().equity(symbol).ohlcv(interval='1m', start=start, end=end)
+            if df is not None and len(df) > 0:
+                last = df.iloc[-1]
+                # Bucket time = epoch seconds floored to minute
+                t = int(last['time'].timestamp()) if hasattr(last['time'], 'timestamp') else int(now.timestamp())
+                bucket = (t // self.BUCKET_SECONDS) * self.BUCKET_SECONDS
+                self.candles[symbol] = ChartCandle(bucket, float(last['close']), int(last.get('volume', 0) or 0))
+                logger.info(f"Seeded candle for {symbol}: {self.candles[symbol].to_dict()}")
+        except Exception as e:
+            logger.warning(f"Seed candle {symbol} failed (OK nếu ngoài giờ): {e}")
+
+    async def process(self, data):
+        """DataProcessor callback — mỗi tick từ WS stream."""
+        symbol = data.get('symbol')
+        price = data.get('last_price') or data.get('price') or data.get('close_price')
+        volume = data.get('last_volume') or data.get('lastVol') or 0
+        if not symbol or price is None:
+            return
+        symbol = symbol.upper()
+        # Chỉ process nếu có subscriber cho symbol này
+        if symbol not in self.subscribers:
+            return
+        # Update hoặc tạo candle
+        now_ts = int(datetime.now().timestamp())
+        bucket = (now_ts // self.BUCKET_SECONDS) * self.BUCKET_SECONDS
+        c = self.candles.get(symbol)
+        is_new_bar = False
+        if c is None or bucket > c.time:
+            # New bar (bucket đổi) hoặc chưa có
+            if c is not None:
+                # Push final bar (closed) trước khi tạo new
+                await self._notify(symbol, c.to_dict())
+            c = ChartCandle(bucket, price, volume)
+            self.candles[symbol] = c
+            is_new_bar = True
+        else:
+            c.update(price, volume)
+        # Notify subscribers (mỗi tick)
+        await self._notify(symbol, c.to_dict())
+
+    async def _notify(self, symbol: str, candle: dict):
+        """Push candle tới tất cả queues của symbol. Drop nếu queue full (slow consumer)."""
+        subs = self.subscribers.get(symbol)
+        if not subs:
+            return
+        for q in list(subs):
+            try:
+                q.put_nowait(candle)
+            except asyncio.QueueFull:
+                # Drop oldest để nhường chỗ (realtime > historical trong queue)
+                try:
+                    q.get_nowait()
+                    q.put_nowait(candle)
+                except Exception:
+                    pass
+
+
 class AppStreamer:
     def __init__(self):
         self.client = PatchedWSSClient()
         self.processor = AlertProcessor()
         self.client.add_processor(self.processor)
-        self.symbols = set()
+        # Chart processor cho WS realtime route (Phase 3.5 backend)
+        self.chart_processor = ChartProcessor()
+        self.client.add_processor(self.chart_processor)
+        self.symbols = set()  # alert symbols
+        self.chart_symbols = set()  # chart-watched symbols (từ WS route)
         self.running = False
         self.is_healthy = False
         self.connected_since = None
@@ -150,6 +277,28 @@ class AppStreamer:
         """Signal the update loop to refresh rules immediately."""
         self.refresh_event.set()
         logger.info("Force refresh triggered")
+
+    def subscribe_chart_symbol(self, symbol: str):
+        """WS route gọi khi client subscribe 1 symbol mới. Đăng ký với upstream WS."""
+        symbol = symbol.upper()
+        if symbol in self.chart_symbols:
+            return  # đã subscribe
+        self.chart_symbols.add(symbol)
+        # Subscribe upstream: union alert + chart symbols
+        all_syms = list(self.symbols | self.chart_symbols)
+        if all_syms:
+            self.client.subscribe_symbols(all_syms)
+        logger.info(f"Chart symbol subscribed: {symbol}, total chart: {len(self.chart_symbols)}")
+
+    def unsubscribe_chart_symbol(self, symbol: str):
+        """WS route gọi khi client disconnect (cleanup). Giữ symbol nếu alert còn dùng."""
+        symbol = symbol.upper()
+        self.chart_symbols.discard(symbol)
+        # Re-subscribe với set mới (loại bỏ symbol không còn ai dùng)
+        all_syms = list(self.symbols | self.chart_symbols)
+        if all_syms:
+            self.client.subscribe_symbols(all_syms)
+        logger.info(f"Chart symbol unsubscribed: {symbol}, total chart: {len(self.chart_symbols)}")
 
     def _is_trading_time(self):
         """Check if current time is within Vietnam stock market trading hours."""
@@ -183,10 +332,12 @@ class AppStreamer:
                             
                             new_symbols = set([r['symbol'] for r in rules])
                             if new_symbols != self.symbols:
-                                logger.info(f"Symbols changed from {self.symbols} to {new_symbols}")
+                                logger.info(f"Alert symbols changed from {self.symbols} to {new_symbols}")
                                 self.symbols = new_symbols
-                                if self.symbols:
-                                    self.client.subscribe_symbols(list(self.symbols))
+                                # Subscribe union: alert + chart symbols
+                                all_syms = list(self.symbols | self.chart_symbols)
+                                if all_syms:
+                                    self.client.subscribe_symbols(all_syms)
                 except Exception as e:
                     logger.error(f"Error fetching rules: {e}")
                 

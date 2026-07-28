@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, WebSocket, WebSocketDisconnect
 from vnstock_data import Market
 import pandas as pd
 import asyncio
@@ -95,6 +95,48 @@ def refresh_streamer():
 def streamer_health():
     """Check WebSocket streamer health status."""
     return streamer.get_health()
+
+@app.websocket("/ws/prices/{symbol}")
+async def ws_prices(websocket: WebSocket, symbol: str):
+    """WebSocket realtime cho chart. Push 1m candle updates mỗi tick (market-hours only).
+    Client connect → subscribe symbol → nhận candle dict {time,open,high,low,close,volume}."""
+    await websocket.accept()
+    symbol = symbol.upper()
+    # Subscribe upstream + register queue
+    streamer.subscribe_chart_symbol(symbol)
+    q = streamer.chart_processor.subscribe(symbol)
+    # Seed candle ban đầu (nếu trong giờ)
+    await streamer.chart_processor.seed_candle(symbol)
+    # Push seed candle ngay cho client (tránh wait)
+    if symbol in streamer.chart_processor.candles:
+        try:
+            await websocket.send_json({'type': 'seed', 'candle': streamer.chart_processor.candles[symbol].to_dict()})
+        except Exception:
+            pass
+    try:
+        while True:
+            # Đợi candle update từ queue (timeout 30s để gửi ping keepalive)
+            try:
+                candle = await asyncio.wait_for(q.get(), timeout=30)
+                await websocket.send_json({'type': 'update', 'candle': candle})
+            except asyncio.TimeoutError:
+                # Keepalive ping
+                await websocket.send_json({'type': 'ping'})
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        import logging
+        logging.error(f"WS prices {symbol} error: {e}")
+    finally:
+        # Cleanup
+        streamer.chart_processor.unsubscribe(symbol, q)
+        # Chỉ unsubscribe upstream nếu không còn subscriber nào cho symbol
+        if symbol not in streamer.chart_processor.subscribers:
+            streamer.unsubscribe_chart_symbol(symbol)
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     import uvicorn
