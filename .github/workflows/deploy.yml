@@ -4,6 +4,9 @@ on:
   push:
     branches: [ "master" ]
 
+# Deploy workspace: /home/ubuntu/deploy_tmp (disk thật, KHÔNG dùng /tmp tmpfs 953MB)
+# Runner = EC2 production (stoxlab-core-runner). rsync là local copy (không SSH).
+
 jobs:
   deploy:
     runs-on: self-hosted
@@ -12,17 +15,275 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Sync files to production folder
-      run: rsync -av --exclude 'venv' --exclude '__pycache__' --exclude '.git' ./ /home/ubuntu/projects/vns_api/
+    # ============================================================
+    # PREFLIGHT: disk + cleanup old snapshots
+    # ============================================================
+    - name: Preflight disk + cleanup old snapshots (preserve latest)
+      id: preflight
+      run: |
+        mkdir -p /home/ubuntu/deploy_tmp
 
-    - name: Install dependencies
+        # Cleanup snapshots cũ (>1 ngày) + failed_backup cũ.
+        # KHÔNG xóa snapshot gần nhất (known-good cho retry).
+        find /home/ubuntu/deploy_tmp -name "vns_prod_snapshot_*.tar.gz" -mtime +1 -delete 2>/dev/null || true
+        find /home/ubuntu/deploy_tmp -name "vns_failed_*.tar.gz" -mtime +1 -delete 2>/dev/null || true
+        echo "  Cleaned snapshots/failed_backups older than 1 day (latest preserved)"
+
+        DISK_FREE_KB=$(df / | awk 'NR==2 {print $4}')
+        DISK_FREE_GB=$((DISK_FREE_KB / 1024 / 1024))
+        echo "📊 / free: ${DISK_FREE_GB}GB"
+
+        if [ "$DISK_FREE_GB" -lt 2 ]; then
+          echo "❌ / < 2GB free — deploy needs ~1.5GB spike (snapshot + pip)"
+          echo "  Current deploy_tmp contents:"
+          ls -lhS /home/ubuntu/deploy_tmp/ 2>/dev/null || echo "  (empty)"
+          echo "  PM2 logs: $(du -sh /home/ubuntu/.pm2/logs/ 2>/dev/null | cut -f1)"
+          echo "  Pip cache: $(du -sh /home/ubuntu/.cache/pip/ 2>/dev/null | cut -f1)"
+          echo "  Manual cleanup: pm2 flush && rm -rf ~/.cache/pip/*"
+          exit 1
+        fi
+        echo "✅ Preflight: / has ${DISK_FREE_GB}GB free"
+
+    # ============================================================
+    # DEPENDENCY PREFLIGHT: verify requirements resolve TRƯỚC khi chạm production
+    #
+    # vnstock_pipeline/vnstock_data là private (không trên PyPI),
+    # nên pip không thể resolve chúng từ PyPI. Tuy nhiên, production venv
+    # đã có chúng (cài qua vnstock_installer). Dùng production venv làm baseline:
+    #   - Package đã installed trong venv production → "already satisfied" → OK
+    #   - Package mới (chưa có) → pip tìm PyPI → nếu không có → FAIL (deploy dừng)
+    #
+    # Production venv BẮT BUỘC phải tồn tại — fail-closed nếu thiếu.
+    # Không in nội dung requirements.txt ra log (chỉ count + list tên package,
+    # không in version specifier hay URL/token).
+    # ============================================================
+    - name: Dependency preflight (verify resolve before touching production)
+      run: |
+        if [ ! -f requirements.txt ]; then
+          echo "❌ requirements.txt missing — aborting"
+          exit 1
+        fi
+
+        PKG_COUNT=$(grep -v '^\s*#' requirements.txt | grep -v '^\s*$' | wc -l)
+        if [ "$PKG_COUNT" -eq 0 ]; then
+          echo "❌ requirements.txt is empty or all comments — aborting"
+          exit 1
+        fi
+        echo "📋 requirements.txt: ${PKG_COUNT} packages"
+        # KHÔNG in danh sách package ra log — dòng hợp lệ có thể chứa
+        # URL/token (vd: pkg @ https://user:TOKEN@host/pkg.whl) mà sed
+        # không strip được. Chỉ log count.
+
+        PROD_VENV=/home/ubuntu/projects/vns_api/venv
+        if [ ! -f "$PROD_VENV/bin/python" ]; then
+          echo "❌ Production venv not found at $PROD_VENV — CANNOT verify dependencies."
+          echo "   Private packages (vnstock_pipeline, vnstock_data) require the venv."
+          echo "   Install via vnstock-cli-installer first, then retry deploy."
+          exit 1
+        fi
+
+        echo "🔍 Dry-run resolve against production venv..."
+        if ! "$PROD_VENV/bin/pip" install --dry-run -r requirements.txt 2>&1; then
+          echo "❌ Dependency preflight FAILED — requirements.txt has packages"
+          echo "   that cannot be resolved (not in production venv, not on PyPI)."
+          echo "   Aborting BEFORE touching production."
+          exit 1
+        fi
+        echo "✅ All dependencies resolve (already satisfied or PyPI-available)"
+
+    # ============================================================
+    # IMPORT SMOKE TEST: verify code mới import OK
+    # Dùng venv production hiện có (trước khi rsync đè code mới).
+    # Nếu code mới có breaking import (vd: xóa module, đổi tên function),
+    # smoke test sẽ fail → deploy dừng trước khi chạm production.
+    #
+    # Production venv BẮT BUỘC phải tồn tại — fail-closed nếu thiếu.
+    # ============================================================
+    - name: Import smoke test (pre-deploy, using checkout + production venv)
+      working-directory: ${{ github.workspace }}
+      run: |
+        PROD_VENV=/home/ubuntu/projects/vns_api/venv
+        if [ ! -f "$PROD_VENV/bin/python" ]; then
+          echo "❌ Production venv not found — CANNOT run import smoke test."
+          echo "   Install via vnstock-cli-installer first, then retry deploy."
+          exit 1
+        fi
+
+        # Copy checkout source vào thư mục tạm + import test
+        # (không chạy trong production folder vì code chưa rsync)
+        SMOKE_DIR=$(mktemp -d /home/ubuntu/deploy_tmp/smoke_XXXX)
+        rsync -a --exclude '.git' --exclude '__pycache__' ./ "$SMOKE_DIR/"
+
+        # Symlink venv production vào smoke dir để Python tìm thấy packages
+        ln -s "$PROD_VENV" "$SMOKE_DIR/venv"
+
+        cd "$SMOKE_DIR"
+        # Test import main module — nếu fail, deploy dừng
+        "$PROD_VENV/bin/python" -c "import main; print('✅ Import smoke test passed')" || {
+          echo "❌ Import smoke test failed — aborting deploy BEFORE touching production"
+          rm -rf "$SMOKE_DIR"
+          exit 1
+        }
+
+        rm -rf "$SMOKE_DIR"
+        echo "✅ Code imports clean with production venv"
+
+    # ============================================================
+    # SNAPSHOT: backup production trước rsync (for rollback)
+    # Include venv để rollback restore hoàn chỉnh.
+    # Exclude .env (credentials), data, logs.
+    # ============================================================
+    - name: Snapshot production dir (for rollback, includes venv)
+      id: snapshot
+      run: |
+        if [ -d /home/ubuntu/projects/vns_api ] && [ "$(ls -A /home/ubuntu/projects/vns_api 2>/dev/null)" ]; then
+          SNAPSHOT="/home/ubuntu/deploy_tmp/vns_prod_snapshot_$(date +%s).tar.gz"
+          if tar -czf "$SNAPSHOT" --exclude='__pycache__' --exclude='.env' --exclude='.env.*' --exclude='data' --exclude='.git' --exclude='logs' -C /home/ubuntu/projects/vns_api .; then
+            SNAPSHOT_SIZE=$(du -h "$SNAPSHOT" | cut -f1)
+            echo "VNS_PROD_SNAPSHOT=$SNAPSHOT" >> $GITHUB_ENV
+            echo "snapshot_path=$SNAPSHOT" >> $GITHUB_OUTPUT
+            echo "✅ Snapshot saved: $SNAPSHOT ($SNAPSHOT_SIZE, venv included)"
+          else
+            echo "❌ Snapshot tar failed — ABORTING deploy (no rollback safety net)"
+            rm -f "$SNAPSHOT" 2>/dev/null || true
+            echo "snapshot_path=" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+        else
+          echo "First deploy — no snapshot needed"
+          echo "snapshot_path=" >> $GITHUB_OUTPUT
+        fi
+
+    # ============================================================
+    # DEPLOY: rsync + pip + PM2
+    # Mỗi step gate trên step trước: chỉ chạy nếu step trước thành công.
+    # continue-on-error + if: condition đảm bảo rollback chạy khi cần,
+    # nhưng KHÔNG chạy step sau khi step trước fail.
+    # ============================================================
+    - name: Sync files to production folder
+      id: rsync
+      continue-on-error: true
+      run: rsync -av --delete --exclude 'venv' --exclude '__pycache__' --exclude '.git' --exclude '.env' --exclude '.env.*' --exclude 'data/' --exclude 'logs/' ./ /home/ubuntu/projects/vns_api/
+
+    - name: Install production deps in venv
+      id: pip_install
+      continue-on-error: true
+      if: ${{ steps.rsync.outcome == 'success' }}
       working-directory: /home/ubuntu/projects/vns_api
       run: |
-        python3 -m venv venv
+        # Dùng Python có sẵn trên system (3.14)
+        PYTHON_BIN="python3"
+        echo "Using: $PYTHON_BIN ($($PYTHON_BIN --version 2>&1))"
+        $PYTHON_BIN -m venv venv
         source venv/bin/activate
         pip install --upgrade pip
         pip install -r requirements.txt
 
     - name: Deploy with PM2
+      id: pm2_deploy
+      continue-on-error: true
+      if: ${{ steps.rsync.outcome == 'success' && steps.pip_install.outcome == 'success' }}
       working-directory: /home/ubuntu/projects/vns_api
-      run: pm2 restart vns_api || pm2 start "venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000" --name vns_api
+      run: |
+        pm2 delete vns_api 2>/dev/null || true
+        pm2 start "venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000" --name vns_api
+
+    # ============================================================
+    # HEALTH GATE: verify app started + healthy
+    # /streamer/health trả {"healthy": bool, "client_connected": bool, ...}
+    #
+    # Gate YÊU CẦU healthy=true (không chỉ HTTP 200).
+    # App trả 200 kể cả khi healthy=false → phải parse JSON.
+    # Theo streamer.py: healthy=true ngay cả ngoài giờ (WebSocket client
+    # connected flag riêng, không ảnh hưởng healthy). Nếu healthy=false
+    # → có vấn đề runtime thực sự (import fail, WS init crash, v.v.).
+    # ============================================================
+    - name: Health check (gate — requires healthy=true)
+      id: health
+      continue-on-error: true
+      if: ${{ steps.rsync.outcome == 'success' && steps.pip_install.outcome == 'success' && steps.pm2_deploy.outcome == 'success' }}
+      working-directory: /home/ubuntu/projects/vns_api
+      run: |
+        sleep 8
+        for i in 1 2 3 4 5; do
+          HTTP_CODE=$(curl -s -o /tmp/vns_health_response.json -w "%{http_code}" --max-time 5 http://localhost:8000/streamer/health || echo "000")
+          if [ "$HTTP_CODE" = "200" ]; then
+            # Parse JSON — yêu cầu healthy=true (không chỉ HTTP 200)
+            HEALTHY=$(python3 -c "import json; print(json.load(open('/tmp/vns_health_response.json')).get('healthy', False))" 2>/dev/null || echo "False")
+            if [ "$HEALTHY" = "True" ]; then
+              echo "✅ Health check passed (HTTP 200, healthy=True)"
+              rm -f /tmp/vns_health_response.json
+              exit 0
+            else
+              echo "Attempt $i/5: HTTP 200 but healthy=$HEALTHY (runtime unhealthy), retrying in 5s..."
+            fi
+          else
+            echo "Attempt $i/5: HTTP $HTTP_CODE, retrying in 5s..."
+          fi
+          sleep 5
+        done
+        echo "❌ Health check failed after 5 attempts"
+        echo "Last response: $(cat /tmp/vns_health_response.json 2>/dev/null || echo '(none)')"
+        rm -f /tmp/vns_health_response.json
+        exit 1
+
+    # ============================================================
+    # ROLLBACK: auto trên bất kỳ fail nào post-snapshot
+    # ============================================================
+    - name: Auto-rollback on failure
+      if: ${{ steps.rsync.outcome == 'failure' || steps.pip_install.outcome == 'failure' || steps.pm2_deploy.outcome == 'failure' || steps.health.outcome == 'failure' }}
+      run: |
+        echo "❌ Deploy failed at: rsync=${{ steps.rsync.outcome }} pip=${{ steps.pip_install.outcome }} pm2=${{ steps.pm2_deploy.outcome }} health=${{ steps.health.outcome }}"
+        SNAPSHOT="${{ env.VNS_PROD_SNAPSHOT }}"
+        if [ -n "$SNAPSHOT" ] && [ -f "$SNAPSHOT" ]; then
+          echo "📦 Restoring snapshot: $SNAPSHOT (includes known-good venv)"
+          pm2 stop vns_api 2>/dev/null || true
+          FAILED_BACKUP="/home/ubuntu/deploy_tmp/vns_failed_$(date +%s).tar.gz"
+          tar -czf "$FAILED_BACKUP" --exclude='venv' --exclude='__pycache__' --exclude='.env' --exclude='.env.*' --exclude='data' --exclude='logs' -C /home/ubuntu/projects/vns_api . 2>/dev/null || true
+          echo "Failed deploy backed up: $FAILED_BACKUP"
+          cd /home/ubuntu/projects/vns_api
+          find . -maxdepth 1 -mindepth 1 ! -name '.env' ! -name '.env.*' ! -name 'data' ! -name 'logs' -exec rm -rf {} + 2>/dev/null || true
+          tar -xzf "$SNAPSHOT" -C /home/ubuntu/projects/vns_api
+          pm2 delete vns_api 2>/dev/null || true
+          pm2 start "venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000" --name vns_api
+          sleep 8
+          # Rollback health gate: parse JSON + require healthy=true (5 retry).
+          # Giống deploy gate — KHÔNG chỉ check HTTP 200.
+          ROLLBACK_HEALTHY=false
+          for r in 1 2 3 4 5; do
+            RB_HTTP=$(curl -s -o /tmp/vns_rb_health.json -w "%{http_code}" --max-time 5 http://localhost:8000/streamer/health || echo "000")
+            if [ "$RB_HTTP" = "200" ]; then
+              RB_HEALTHY=$(python3 -c "import json; print(json.load(open('/tmp/vns_rb_health.json')).get('healthy', False))" 2>/dev/null || echo "False")
+              if [ "$RB_HEALTHY" = "True" ]; then
+                ROLLBACK_HEALTHY=true
+                break
+              fi
+            fi
+            echo "  Rollback health attempt $r/5: HTTP=$RB_HTTP healthy=$RB_HEALTHY, retrying in 5s..."
+            sleep 5
+          done
+          rm -f /tmp/vns_rb_health.json
+          if [ "$ROLLBACK_HEALTHY" = "true" ]; then
+            echo "✅ Rollback successful — production restored (healthy=true, venv from snapshot)"
+          else
+            echo "❌❌ Rollback failed — manual intervention needed. PM2 logs:"
+            pm2 logs vns_api --lines 50 --nostream
+          fi
+        else
+          echo "⚠️ No snapshot available — manual rollback: git revert HEAD + redeploy"
+        fi
+        exit 1
+
+    # ============================================================
+    # CLEANUP: success only (preserve artifacts on failure)
+    # ============================================================
+    - name: Cleanup (success only — preserve artifacts on failure)
+      if: success()
+      working-directory: /home/ubuntu/projects/vns_api
+      run: |
+        find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+        find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null || true
+        rm -f /home/ubuntu/deploy_tmp/vns_prod_snapshot_*.tar.gz 2>/dev/null || true
+        find /home/ubuntu/deploy_tmp -name "vns_failed_*.tar.gz" -mtime +1 -delete 2>/dev/null || true
+        find /home/ubuntu/deploy_tmp -name "smoke_*" -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+        echo "Cleanup done (success only — artifacts preserved on failure)"
