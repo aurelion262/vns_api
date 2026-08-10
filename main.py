@@ -105,8 +105,10 @@ async def ws_prices(websocket: WebSocket, symbol: str):
     # Subscribe upstream + register queue
     streamer.subscribe_chart_symbol(symbol)
     q = streamer.chart_processor.subscribe(symbol)
-    # Seed candle ban đầu (nếu trong giờ)
-    await streamer.chart_processor.seed_candle(symbol)
+    # Sol R3: Seed candle ban đầu (nếu trong giờ) — chỉ khi chưa có candle
+    # (tránh overwrite candle đang chạy khi subscriber thứ 2 kết nối).
+    if symbol not in streamer.chart_processor.candles:
+        await streamer.chart_processor.seed_candle(symbol)
     # Push seed candle ngay cho client (tránh wait)
     if symbol in streamer.chart_processor.candles:
         try:

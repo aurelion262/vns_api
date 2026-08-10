@@ -294,10 +294,10 @@ class AppStreamer:
         """WS route gọi khi client disconnect (cleanup). Giữ symbol nếu alert còn dùng."""
         symbol = symbol.upper()
         self.chart_symbols.discard(symbol)
-        # Re-subscribe với set mới (loại bỏ symbol không còn ai dùng)
+        # Sol R3: luôn cập nhật upstream — kể cả khi union rỗng (subscribe_symbols([])
+        # signals upstream to unsubscribe all). Was previously skipping when empty.
         all_syms = list(self.symbols | self.chart_symbols)
-        if all_syms:
-            self.client.subscribe_symbols(all_syms)
+        self.client.subscribe_symbols(all_syms)
         logger.info(f"Chart symbol unsubscribed: {symbol}, total chart: {len(self.chart_symbols)}")
 
     def _is_trading_time(self):
