@@ -35,8 +35,9 @@ def _parse_kwargs(start, end, interval, limit, timezone):
 # --------------------------------------------------------------------------------
 
 @router.get("/equity/ohlcv")
-def equity_ohlcv(symbol: str = Query(...), start: str = None, end: str = None):
-    try: return {"data": _clean_dataframe(Market().equity(symbol.upper()).ohlcv(**_parse_kwargs(start, end, None, None, None)))}
+def equity_ohlcv(symbol: str = Query(...), start: str = None, end: str = None, interval: str = None):
+    """Equity OHLCV. `interval` hỗ trợ 1D (mặc định), 1W, 1M, và intraday 1m/5m/15m/1H (cần sponsor tier)."""
+    try: return {"data": _clean_dataframe(Market().equity(symbol.upper()).ohlcv(**_parse_kwargs(start, end, interval, None, None)))}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/equity/trade_history")
@@ -99,8 +100,9 @@ def equity_summary(symbol: str = Query(...)):
 # --------------------------------------------------------------------------------
 
 @router.get("/index/ohlcv")
-def index_ohlcv(symbol: str = Query(...), start: str = None, end: str = None):
-    try: return {"data": _clean_dataframe(Market().index(symbol.upper()).ohlcv(**_parse_kwargs(start, end, None, None, None)))}
+def index_ohlcv(symbol: str = Query(...), start: str = None, end: str = None, interval: str = None):
+    """Index OHLCV. `interval` hỗ trợ 1D/1W/1M + intraday 1m/5m/15m/1H (cần sponsor tier)."""
+    try: return {"data": _clean_dataframe(Market().index(symbol.upper()).ohlcv(**_parse_kwargs(start, end, interval, None, None)))}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/index/quote")
@@ -118,8 +120,9 @@ def index_summary(symbol: str = Query(...)):
 # --------------------------------------------------------------------------------
 
 @router.get("/futures/ohlcv")
-def futures_ohlcv(symbol: str = Query(...), start: str = None, end: str = None):
-    try: return {"data": _clean_dataframe(Market().futures(symbol.upper()).ohlcv(**_parse_kwargs(start, end, None, None, None)))}
+def futures_ohlcv(symbol: str = Query(...), start: str = None, end: str = None, interval: str = None):
+    """Futures OHLCV. `interval` hỗ trợ 1D/1W/1M + intraday 1m/5m/15m/1H (cần sponsor tier)."""
+    try: return {"data": _clean_dataframe(Market().futures(symbol.upper()).ohlcv(**_parse_kwargs(start, end, interval, None, None)))}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/futures/quote")
