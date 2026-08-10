@@ -53,8 +53,9 @@ jobs:
     #   - Package đã installed trong venv production → "already satisfied" → OK
     #   - Package mới (chưa có) → pip tìm PyPI → nếu không có → FAIL (deploy dừng)
     #
-    # Điều này đảm bảo: nếu requirements.txt thêm package PyPI không có,
-    # deploy fail TRƯỚC khi rsync — đúng acceptance criteria #1-2.
+    # Production venv BẮT BUỘC phải tồn tại — fail-closed nếu thiếu.
+    # Không in nội dung requirements.txt ra log (chỉ count + list tên package,
+    # không in version specifier hay URL/token).
     # ============================================================
     - name: Dependency preflight (verify resolve before touching production)
       run: |
@@ -63,28 +64,32 @@ jobs:
           exit 1
         fi
 
-        NON_COMMENT_LINES=$(grep -v '^\s*#' requirements.txt | grep -v '^\s*$' || true)
-        if [ -z "$NON_COMMENT_LINES" ]; then
+        PKG_COUNT=$(grep -v '^\s*#' requirements.txt | grep -v '^\s*$' | wc -l)
+        if [ "$PKG_COUNT" -eq 0 ]; then
           echo "❌ requirements.txt is empty or all comments — aborting"
           exit 1
         fi
-        echo "📋 requirements.txt packages:"
-        echo "$NON_COMMENT_LINES"
+        echo "📋 requirements.txt: ${PKG_COUNT} packages"
+
+        # List tên package ONLY (không version/URL) để tránh leak token trong log
+        grep -v '^\s*#' requirements.txt | grep -v '^\s*$' | sed 's/[<>=!].*//' | sed 's/\[.*//' | sort
 
         PROD_VENV=/home/ubuntu/projects/vns_api/venv
-        if [ -f "$PROD_VENV/bin/python" ]; then
-          echo "🔍 Dry-run resolve against production venv..."
-          if ! "$PROD_VENV/bin/pip" install --dry-run -r requirements.txt 2>&1; then
-            echo "❌ Dependency preflight FAILED — requirements.txt has packages"
-            echo "   that cannot be resolved (not in production venv, not on PyPI)."
-            echo "   Aborting BEFORE touching production."
-            exit 1
-          fi
-          echo "✅ All dependencies resolve (already satisfied or PyPI-available)"
-        else
-          echo "⚠️ Production venv not found — syntax check only (first deploy?)"
-          echo "✅ requirements.txt syntax valid"
+        if [ ! -f "$PROD_VENV/bin/python" ]; then
+          echo "❌ Production venv not found at $PROD_VENV — CANNOT verify dependencies."
+          echo "   Private packages (vnstock_pipeline, vnstock_data) require the venv."
+          echo "   Install via vnstock-cli-installer first, then retry deploy."
+          exit 1
         fi
+
+        echo "🔍 Dry-run resolve against production venv..."
+        if ! "$PROD_VENV/bin/pip" install --dry-run -r requirements.txt 2>&1; then
+          echo "❌ Dependency preflight FAILED — requirements.txt has packages"
+          echo "   that cannot be resolved (not in production venv, not on PyPI)."
+          echo "   Aborting BEFORE touching production."
+          exit 1
+        fi
+        echo "✅ All dependencies resolve (already satisfied or PyPI-available)"
 
     # ============================================================
     # IMPORT SMOKE TEST: verify code mới import OK
@@ -92,16 +97,16 @@ jobs:
     # Nếu code mới có breaking import (vd: xóa module, đổi tên function),
     # smoke test sẽ fail → deploy dừng trước khi chạm production.
     #
-    # Giới hạn: nếu code mới cần package chưa có trong venv production,
-    # smoke test sẽ fail (đúng như mong đợi — cần cài package trước).
+    # Production venv BẮT BUỘC phải tồn tại — fail-closed nếu thiếu.
     # ============================================================
     - name: Import smoke test (pre-deploy, using checkout + production venv)
       working-directory: ${{ github.workspace }}
       run: |
         PROD_VENV=/home/ubuntu/projects/vns_api/venv
         if [ ! -f "$PROD_VENV/bin/python" ]; then
-          echo "⚠️ Production venv not found — skipping import smoke test (first deploy?)"
-          exit 0
+          echo "❌ Production venv not found — CANNOT run import smoke test."
+          echo "   Install via vnstock-cli-installer first, then retry deploy."
+          exit 1
         fi
 
         # Copy checkout source vào thư mục tạm + import test
@@ -151,6 +156,9 @@ jobs:
 
     # ============================================================
     # DEPLOY: rsync + pip + PM2
+    # Mỗi step gate trên step trước: chỉ chạy nếu step trước thành công.
+    # continue-on-error + if: condition đảm bảo rollback chạy khi cần,
+    # nhưng KHÔNG chạy step sau khi step trước fail.
     # ============================================================
     - name: Sync files to production folder
       id: rsync
@@ -160,6 +168,7 @@ jobs:
     - name: Install production deps in venv
       id: pip_install
       continue-on-error: true
+      if: ${{ steps.rsync.outcome == 'success' }}
       working-directory: /home/ubuntu/projects/vns_api
       run: |
         # Dùng Python có sẵn trên system (3.14)
@@ -173,6 +182,7 @@ jobs:
     - name: Deploy with PM2
       id: pm2_deploy
       continue-on-error: true
+      if: ${{ steps.rsync.outcome == 'success' && steps.pip_install.outcome == 'success' }}
       working-directory: /home/ubuntu/projects/vns_api
       run: |
         pm2 delete vns_api 2>/dev/null || true
@@ -181,28 +191,39 @@ jobs:
     # ============================================================
     # HEALTH GATE: verify app started + healthy
     # /streamer/health trả {"healthy": bool, "client_connected": bool, ...}
-    # Trong off-hours, healthy có thể = false (WebSocket chưa connect).
-    # Gate: HTTP 200 (app sống) + 5 retry.
+    #
+    # Gate YÊU CẦU healthy=true (không chỉ HTTP 200).
+    # App trả 200 kể cả khi healthy=false → phải parse JSON.
+    # Theo streamer.py: healthy=true ngay cả ngoài giờ (WebSocket client
+    # connected flag riêng, không ảnh hưởng healthy). Nếu healthy=false
+    # → có vấn đề runtime thực sự (import fail, WS init crash, v.v.).
     # ============================================================
-    - name: Health check (gate)
+    - name: Health check (gate — requires healthy=true)
       id: health
       continue-on-error: true
+      if: ${{ steps.rsync.outcome == 'success' && steps.pip_install.outcome == 'success' && steps.pm2_deploy.outcome == 'success' }}
       working-directory: /home/ubuntu/projects/vns_api
       run: |
         sleep 8
         for i in 1 2 3 4 5; do
           HTTP_CODE=$(curl -s -o /tmp/vns_health_response.json -w "%{http_code}" --max-time 5 http://localhost:8000/streamer/health || echo "000")
           if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ Health check passed (HTTP 200)"
-            echo "Response: $(cat /tmp/vns_health_response.json)"
-            rm -f /tmp/vns_health_response.json
-            exit 0
+            # Parse JSON — yêu cầu healthy=true (không chỉ HTTP 200)
+            HEALTHY=$(python3 -c "import json; print(json.load(open('/tmp/vns_health_response.json')).get('healthy', False))" 2>/dev/null || echo "False")
+            if [ "$HEALTHY" = "True" ]; then
+              echo "✅ Health check passed (HTTP 200, healthy=True)"
+              rm -f /tmp/vns_health_response.json
+              exit 0
+            else
+              echo "Attempt $i/5: HTTP 200 but healthy=$HEALTHY (runtime unhealthy), retrying in 5s..."
+            fi
+          else
+            echo "Attempt $i/5: HTTP $HTTP_CODE, retrying in 5s..."
           fi
-          echo "Attempt $i/5: HTTP $HTTP_CODE, retrying in 5s..."
           sleep 5
         done
         echo "❌ Health check failed after 5 attempts"
-        cat /tmp/vns_health_response.json 2>/dev/null || true
+        echo "Last response: $(cat /tmp/vns_health_response.json 2>/dev/null || echo '(none)')"
         rm -f /tmp/vns_health_response.json
         exit 1
 
