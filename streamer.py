@@ -192,20 +192,34 @@ class ChartProcessor(DataProcessor):
                 self.candles.pop(symbol, None)
 
     async def seed_candle(self, symbol: str):
-        """Seed last 1m bar từ REST ohlcv (gọi 1 lần khi subscribe mới)."""
+        """Seed last 1m bar từ REST ohlcv (gọi 1 lần khi subscribe mới).
+
+        Sol R4: REST call moved to asyncio.to_thread (was blocking event loop).
+        After await, re-check candle existence — a tick arriving during the
+        await must not be overwritten by stale seed data.
+        """
         symbol = symbol.upper()
+        # Re-check: if a tick arrived while we were waiting, don't overwrite.
+        if symbol in self.candles:
+            return  # candle already exists from a concurrent tick
         try:
             from vnstock_data import Market
             from datetime import datetime, timezone, timedelta
-            vn_tz = timezone(timedelta(hours=7))
-            now = datetime.now(vn_tz)
-            end = now.strftime('%Y-%m-%d %H:%M:%S')
-            start = (now - timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
-            df = Market().equity(symbol).ohlcv(interval='1m', start=start, end=end)
+
+            def _fetch():
+                vn_tz = timezone(timedelta(hours=7))
+                now = datetime.now(vn_tz)
+                end = now.strftime('%Y-%m-%d %H:%M:%S')
+                start = (now - timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
+                return Market().equity(symbol).ohlcv(interval='1m', start=start, end=end)
+
+            df = await asyncio.to_thread(_fetch)
+            # Re-check after await: tick may have set candle during fetch.
+            if symbol in self.candles:
+                return  # don't overwrite running candle
             if df is not None and len(df) > 0:
                 last = df.iloc[-1]
-                # Bucket time = epoch seconds floored to minute
-                t = int(last['time'].timestamp()) if hasattr(last['time'], 'timestamp') else int(now.timestamp())
+                t = int(last['time'].timestamp()) if hasattr(last['time'], 'timestamp') else int(datetime.now(timezone(timedelta(hours=7))).timestamp())
                 bucket = (t // self.BUCKET_SECONDS) * self.BUCKET_SECONDS
                 self.candles[symbol] = ChartCandle(bucket, float(last['close']), int(last.get('volume', 0) or 0))
                 logger.info(f"Seeded candle for {symbol}: {self.candles[symbol].to_dict()}")
@@ -291,14 +305,26 @@ class AppStreamer:
         logger.info(f"Chart symbol subscribed: {symbol}, total chart: {len(self.chart_symbols)}")
 
     def unsubscribe_chart_symbol(self, symbol: str):
-        """WS route gọi khi client disconnect (cleanup). Giữ symbol nếu alert còn dùng."""
+        """WS route gọi khi client disconnect (cleanup). Giữ symbol nếu alert còn dùng.
+
+        Sol R4 BLOCKER: vnstock_pipeline WSSClient only supports action="join".
+        There is no "leave" or "unsubscribe" action in the source. Calling
+        subscribe_symbols([]) sends join with empty list — it is UNKNOWN whether
+        upstream VPS interprets this as unsubscribe. Until verified, we do NOT
+        call subscribe_symbols([]) when union is empty. Symbols remain subscribed
+        upstream until session reconnect. This is acceptable: unused subscriptions
+        are harmless (just receive data nobody reads).
+        """
         symbol = symbol.upper()
         self.chart_symbols.discard(symbol)
-        # Sol R3: luôn cập nhật upstream — kể cả khi union rỗng (subscribe_symbols([])
-        # signals upstream to unsubscribe all). Was previously skipping when empty.
+        # Only re-subscribe upstream if there are remaining symbols.
+        # Do NOT call subscribe_symbols([]) — no evidence it clears upstream.
         all_syms = list(self.symbols | self.chart_symbols)
-        self.client.subscribe_symbols(all_syms)
-        logger.info(f"Chart symbol unsubscribed: {symbol}, total chart: {len(self.chart_symbols)}")
+        if all_syms:
+            self.client.subscribe_symbols(all_syms)
+        # If all_syms is empty: upstream keeps current subscriptions until reconnect.
+        logger.info(f"Chart symbol unsubscribed: {symbol}, total chart: {len(self.chart_symbols)}, "
+                     f"upstream union: {len(all_syms)}")
 
     def _is_trading_time(self):
         """Check if current time is within Vietnam stock market trading hours."""
