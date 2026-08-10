@@ -298,8 +298,10 @@ class AppStreamer:
         if symbol in self.chart_symbols:
             return  # đã subscribe
         self.chart_symbols.add(symbol)
-        # Subscribe upstream: union alert + chart symbols
+        # Subscribe upstream: union alert + chart symbols.
+        # Sol Design A: always sync raw_messages so reconnect uses current set.
         all_syms = list(self.symbols | self.chart_symbols)
+        self.client.clear_raw_messages()
         if all_syms:
             self.client.subscribe_symbols(all_syms)
         logger.info(f"Chart symbol subscribed: {symbol}, total chart: {len(self.chart_symbols)}")
@@ -307,22 +309,19 @@ class AppStreamer:
     def unsubscribe_chart_symbol(self, symbol: str):
         """WS route gọi khi client disconnect (cleanup). Giữ symbol nếu alert còn dùng.
 
-        Sol R4 BLOCKER: vnstock_pipeline WSSClient only supports action="join".
-        There is no "leave" or "unsubscribe" action in the source. Calling
-        subscribe_symbols([]) sends join with empty list — it is UNKNOWN whether
-        upstream VPS interprets this as unsubscribe. Until verified, we do NOT
-        call subscribe_symbols([]) when union is empty. Symbols remain subscribed
-        upstream until session reconnect. This is acceptable: unused subscriptions
-        are harmless (just receive data nobody reads).
+        Sol Design A modified:
+        - Always sync raw_messages with desired union (clear + re-add if non-empty).
+        - Union empty: clear_raw_messages() only — never send join("").
+        - Reconnect will use empty raw_messages → no re-subscribe of dropped symbols.
         """
         symbol = symbol.upper()
         self.chart_symbols.discard(symbol)
-        # Only re-subscribe upstream if there are remaining symbols.
-        # Do NOT call subscribe_symbols([]) — no evidence it clears upstream.
         all_syms = list(self.symbols | self.chart_symbols)
+        # Sol: always clear + re-sync raw_messages with current desired union.
+        self.client.clear_raw_messages()
         if all_syms:
             self.client.subscribe_symbols(all_syms)
-        # If all_syms is empty: upstream keeps current subscriptions until reconnect.
+        # If empty: raw_messages is now cleared → reconnect won't re-subscribe.
         logger.info(f"Chart symbol unsubscribed: {symbol}, total chart: {len(self.chart_symbols)}, "
                      f"upstream union: {len(all_syms)}")
 

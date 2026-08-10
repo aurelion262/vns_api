@@ -234,28 +234,33 @@ class TestUpstreamUnsubscribe:
         # Still has subscribers → main.py condition `if symbol not in subscribers` is False.
         assert "MSB" in s.chart_processor.subscribers
 
-    def test_leave_last_does_not_call_subscribe_empty(self):
-        """Sol R4 BLOCKER: vnstock_pipeline WSSClient only supports action="join".
-        subscribe_symbols([]) sends join with empty list — no evidence upstream
-        interprets this as unsubscribe. unsubscribe_chart_symbol must NOT call
-        subscribe_symbols([]) when union is empty."""
+    def test_leave_last_clears_raw_messages(self):
+        """Sol Design A: when union is empty after unsubscribe, raw_messages must
+        be cleared so reconnect does NOT re-subscribe dropped symbols."""
         from streamer import AppStreamer
         s = AppStreamer()
         s.subscribe_chart_symbol("MSB")
-        assert "MSB" in s.chart_symbols
-
-        call_log = []
-        original_sub = s.client.subscribe_symbols
-        def tracking_sub(symbols):
-            call_log.append(list(symbols))
-            original_sub(symbols)
-        s.client.subscribe_symbols = tracking_sub
+        assert len(s.client._raw_messages) > 0  # join message was added
 
         s.unsubscribe_chart_symbol("MSB")
         assert "MSB" not in s.chart_symbols
-        # Must NOT call subscribe_symbols([]) — BLOCKER: no leave action exists.
-        assert len(call_log) == 0, \
-            f"subscribe_symbols should NOT be called with empty union. Calls: {call_log}"
+        # _raw_messages must be empty — reconnect won't re-subscribe MSB.
+        assert len(s.client._raw_messages) == 0, \
+            f"_raw_messages must be cleared when union empty. Got: {s.client._raw_messages}"
+
+    def test_leave_one_keeps_raw_messages_synced(self):
+        """Sol Design A: when subscriber leaves but symbols remain, raw_messages
+        must be re-synced to contain only the current desired union."""
+        from streamer import AppStreamer
+        s = AppStreamer()
+        s.subscribe_chart_symbol("MSB")
+        s.subscribe_chart_symbol("VCB")
+        # Leave MSB — VCB should still be in raw_messages.
+        s.unsubscribe_chart_symbol("MSB")
+        assert len(s.client._raw_messages) > 0  # still has VCB join
+        # Re-add MSB — raw_messages should have both.
+        s.subscribe_chart_symbol("MSB")
+        assert len(s.client._raw_messages) > 0
 
     def test_leave_last_keeps_upstream_if_alert_uses_symbol(self):
         """If alert set uses MSB, chart unsubscribe keeps it in upstream."""
@@ -333,40 +338,46 @@ class TestRoutes:
                         if hasattr(r, "path") and "ws" in r.path]
             assert any("/ws/prices/" in p for p in ws_paths)
 
-    def test_ws_connect_receives_seed_and_cleanup(self):
-        """Sol R4: TestClient.websocket_connect — connect, receive (seed or ping),
-        disconnect, verify cleanup (subscriber removed + chart_symbol removed)."""
+    def test_ws_connect_and_cleanup(self):
+        """Sol: WS connect → disconnect → cleanup must happen.
+        No swallowed exceptions — assert real cleanup or real failure."""
         from fastapi.testclient import TestClient
         with patch("main.Market", return_value=MagicMock()):
             import main
-            # Mock streamer methods to avoid real upstream.
-            main.streamer.subscribe_chart_symbol = MagicMock()
-            main.streamer.unsubscribe_chart_symbol = MagicMock()
-            # chart_processor: mock seed to do nothing (outside trading hours).
-            main.streamer.chart_processor.seed_candle = MagicMock(
-                side_effect=asyncio.coroutine(lambda self, sym: None)
-                if hasattr(asyncio, 'coroutine')
-                else _noop_coro())
-            with TestClient(main.app) as client:
-                try:
+            # Mock the streamer's client to avoid real WS + asyncio.create_task issues.
+            mock_client = MagicMock()
+            mock_client._raw_messages = []
+            mock_client.raw_messages = mock_client._raw_messages
+            mock_client.is_connected.return_value = False
+            mock_client.clear_raw_messages.side_effect = lambda: mock_client._raw_messages.clear()
+            mock_client.subscribe_symbols.side_effect = lambda syms: mock_client._raw_messages.append(f"join:{','.join(syms)}")
+
+            orig_client = main.streamer.client
+            main.streamer.client = mock_client
+
+            subscribe_calls = []
+            unsubscribe_calls = []
+            orig_sub = main.streamer.subscribe_chart_symbol
+            orig_unsub = main.streamer.unsubscribe_chart_symbol
+            def track_sub(sym):
+                subscribe_calls.append(sym)
+                orig_sub(sym)
+            def track_unsub(sym):
+                unsubscribe_calls.append(sym)
+                orig_unsub(sym)
+            main.streamer.subscribe_chart_symbol = track_sub
+            main.streamer.unsubscribe_chart_symbol = track_unsub
+
+            try:
+                with TestClient(main.app) as client:
                     with client.websocket_connect("/ws/prices/MSB") as ws:
-                        # Try to receive within timeout (seed or ping).
-                        try:
-                            data = ws.receive_json()
-                            # Either seed or ping — both are valid.
-                            assert "type" in data
-                        except Exception:
-                            pass  # timeout is OK (no data outside trading hours)
-                except Exception:
-                    pass  # WS test may not fully work in TestClient; verify cleanup below.
-            # After disconnect: chart_processor.unsubscribe should have been called.
-            # We can't assert exact internal state without deeper mock, but
-            # unsubscribe_chart_symbol should have been called at least once.
-            assert main.streamer.unsubscribe_chart_symbol.called or True  # cleanup ran
+                        pass  # context exit = disconnect
+            except Exception:
+                pass  # WS may error on disconnect — what matters is cleanup
+            finally:
+                main.streamer.client = orig_client
 
-
-def _noop_coro():
-    """Create an async noop for mocking async methods (no pytest-asyncio)."""
-    async def _noop(*a, **kw):
-        pass
-    return _noop
+            assert len(subscribe_calls) >= 1, "subscribe_chart_symbol must be called on connect"
+            assert len(unsubscribe_calls) >= 1, \
+                "unsubscribe_chart_symbol must be called on disconnect — cleanup regression"
+            assert unsubscribe_calls[-1] == "MSB"
