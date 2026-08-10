@@ -8,5 +8,5 @@ lxml
 schedule
 scipy
 vnstock_data>=2.0.0
-vnstock_pipeline>=2.3.0
+vnstock_pipeline==2.2.5
 aiohttp>=3.9.0

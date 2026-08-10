@@ -235,32 +235,32 @@ class TestUpstreamUnsubscribe:
         assert "MSB" in s.chart_processor.subscribers
 
     def test_leave_last_clears_raw_messages(self):
-        """Sol Design A: when union is empty after unsubscribe, raw_messages must
+        """Sol R6: when union is empty after unsubscribe, raw_messages must
         be cleared so reconnect does NOT re-subscribe dropped symbols."""
         from streamer import AppStreamer
         s = AppStreamer()
         s.subscribe_chart_symbol("MSB")
-        assert len(s.client._raw_messages) > 0  # join message was added
+        assert len(s.client._raw_messages) > 0
 
         s.unsubscribe_chart_symbol("MSB")
         assert "MSB" not in s.chart_symbols
-        # _raw_messages must be empty — reconnect won't re-subscribe MSB.
         assert len(s.client._raw_messages) == 0, \
-            f"_raw_messages must be cleared when union empty. Got: {s.client._raw_messages}"
+            f"_raw_messages must be empty. Got: {s.client._raw_messages}"
+        # Verify MSB join message is NOT in raw_messages.
+        raw_text = " ".join(s.client._raw_messages)
+        assert "MSB" not in raw_text
 
-    def test_leave_one_keeps_raw_messages_synced(self):
-        """Sol Design A: when subscriber leaves but symbols remain, raw_messages
-        must be re-synced to contain only the current desired union."""
+    def test_leave_one_keeps_correct_symbols(self):
+        """Sol R6: leave MSB, VCB must be kept — assert MSB removed AND VCB kept."""
         from streamer import AppStreamer
         s = AppStreamer()
         s.subscribe_chart_symbol("MSB")
         s.subscribe_chart_symbol("VCB")
-        # Leave MSB — VCB should still be in raw_messages.
         s.unsubscribe_chart_symbol("MSB")
-        assert len(s.client._raw_messages) > 0  # still has VCB join
-        # Re-add MSB — raw_messages should have both.
-        s.subscribe_chart_symbol("MSB")
-        assert len(s.client._raw_messages) > 0
+
+        raw_text = " ".join(s.client._raw_messages)
+        assert "MSB" not in raw_text, f"MSB should be removed from raw_messages: {raw_text}"
+        assert "VCB" in raw_text, f"VCB should be kept in raw_messages: {raw_text}"
 
     def test_leave_last_keeps_upstream_if_alert_uses_symbol(self):
         """If alert set uses MSB, chart unsubscribe keeps it in upstream."""
@@ -339,15 +339,14 @@ class TestRoutes:
             assert any("/ws/prices/" in p for p in ws_paths)
 
     def test_ws_connect_and_cleanup(self):
-        """Sol: WS connect → disconnect → cleanup must happen.
-        No swallowed exceptions — assert real cleanup or real failure."""
+        """Sol R6: WS connect → disconnect → cleanup must happen.
+        No swallowed exceptions. Restore monkeypatched methods after."""
         from fastapi.testclient import TestClient
         with patch("main.Market", return_value=MagicMock()):
             import main
-            # Mock the streamer's client to avoid real WS + asyncio.create_task issues.
+            # Mock client to avoid asyncio.create_task on closed loop.
             mock_client = MagicMock()
             mock_client._raw_messages = []
-            mock_client.raw_messages = mock_client._raw_messages
             mock_client.is_connected.return_value = False
             mock_client.clear_raw_messages.side_effect = lambda: mock_client._raw_messages.clear()
             mock_client.subscribe_symbols.side_effect = lambda syms: mock_client._raw_messages.append(f"join:{','.join(syms)}")
@@ -357,27 +356,21 @@ class TestRoutes:
 
             subscribe_calls = []
             unsubscribe_calls = []
-            orig_sub = main.streamer.subscribe_chart_symbol
-            orig_unsub = main.streamer.unsubscribe_chart_symbol
-            def track_sub(sym):
-                subscribe_calls.append(sym)
-                orig_sub(sym)
-            def track_unsub(sym):
-                unsubscribe_calls.append(sym)
-                orig_unsub(sym)
-            main.streamer.subscribe_chart_symbol = track_sub
-            main.streamer.unsubscribe_chart_symbol = track_unsub
 
-            try:
-                with TestClient(main.app) as client:
-                    with client.websocket_connect("/ws/prices/MSB") as ws:
-                        pass  # context exit = disconnect
-            except Exception:
-                pass  # WS may error on disconnect — what matters is cleanup
-            finally:
-                main.streamer.client = orig_client
+            with patch.object(main.streamer, 'subscribe_chart_symbol',
+                              side_effect=lambda s: (subscribe_calls.append(s), None)):
+                with patch.object(main.streamer, 'unsubscribe_chart_symbol',
+                                  side_effect=lambda s: (unsubscribe_calls.append(s), None)):
+                    try:
+                        main.streamer.client = mock_client
+                        with TestClient(main.app) as client:
+                            with client.websocket_connect("/ws/prices/MSB"):
+                                pass  # context exit triggers disconnect
+                    finally:
+                        main.streamer.client = orig_client
 
-            assert len(subscribe_calls) >= 1, "subscribe_chart_symbol must be called on connect"
+            assert len(subscribe_calls) >= 1, "subscribe must be called on connect"
             assert len(unsubscribe_calls) >= 1, \
-                "unsubscribe_chart_symbol must be called on disconnect — cleanup regression"
-            assert unsubscribe_calls[-1] == "MSB"
+                "unsubscribe must be called on disconnect — no swallowed failure"
+            assert subscribe_calls[0] == "MSB"
+            assert unsubscribe_calls[0] == "MSB"

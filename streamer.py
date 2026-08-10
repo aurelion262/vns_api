@@ -298,32 +298,30 @@ class AppStreamer:
         if symbol in self.chart_symbols:
             return  # đã subscribe
         self.chart_symbols.add(symbol)
-        # Subscribe upstream: union alert + chart symbols.
-        # Sol Design A: always sync raw_messages so reconnect uses current set.
-        all_syms = list(self.symbols | self.chart_symbols)
-        self.client.clear_raw_messages()
-        if all_syms:
-            self.client.subscribe_symbols(all_syms)
+        self._sync_desired_subscriptions()
         logger.info(f"Chart symbol subscribed: {symbol}, total chart: {len(self.chart_symbols)}")
 
     def unsubscribe_chart_symbol(self, symbol: str):
-        """WS route gọi khi client disconnect (cleanup). Giữ symbol nếu alert còn dùng.
-
-        Sol Design A modified:
-        - Always sync raw_messages with desired union (clear + re-add if non-empty).
-        - Union empty: clear_raw_messages() only — never send join("").
-        - Reconnect will use empty raw_messages → no re-subscribe of dropped symbols.
-        """
+        """WS route gọi khi client disconnect (cleanup). Giữ symbol nếu alert còn dùng."""
         symbol = symbol.upper()
         self.chart_symbols.discard(symbol)
+        self._sync_desired_subscriptions()
+        logger.info(f"Chart symbol unsubscribed: {symbol}, total chart: {len(self.chart_symbols)}")
+
+    def _sync_desired_subscriptions(self):
+        """Sol R6: single helper that syncs raw_messages with the desired union.
+
+        Always clears raw_messages first, then re-adds the current union
+        (alert symbols | chart symbols). This ensures reconnect uses only
+        the current desired set — never stale symbols from a previous state.
+
+        Union empty → raw_messages cleared → reconnect subscribes nothing.
+        Never sends join(""). All 3 mutation paths route through this helper.
+        """
         all_syms = list(self.symbols | self.chart_symbols)
-        # Sol: always clear + re-sync raw_messages with current desired union.
         self.client.clear_raw_messages()
         if all_syms:
             self.client.subscribe_symbols(all_syms)
-        # If empty: raw_messages is now cleared → reconnect won't re-subscribe.
-        logger.info(f"Chart symbol unsubscribed: {symbol}, total chart: {len(self.chart_symbols)}, "
-                     f"upstream union: {len(all_syms)}")
 
     def _is_trading_time(self):
         """Check if current time is within Vietnam stock market trading hours."""
@@ -359,10 +357,7 @@ class AppStreamer:
                             if new_symbols != self.symbols:
                                 logger.info(f"Alert symbols changed from {self.symbols} to {new_symbols}")
                                 self.symbols = new_symbols
-                                # Subscribe union: alert + chart symbols
-                                all_syms = list(self.symbols | self.chart_symbols)
-                                if all_syms:
-                                    self.client.subscribe_symbols(all_syms)
+                                self._sync_desired_subscriptions()
                 except Exception as e:
                     logger.error(f"Error fetching rules: {e}")
                 
