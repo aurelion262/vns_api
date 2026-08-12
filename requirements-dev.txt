@@ -1,0 +1,3 @@
+# Test-only dependencies. Production deps stay in requirements.txt.
+pandas>=2.0  # already a runtime transitive dep; pinned here for the test env
+pytest>=8.0
