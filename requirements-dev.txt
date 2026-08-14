@@ -1,0 +1,5 @@
+# Local test harness only — vns_api CI does NOT run pytest yet.
+# Install: pip install -r requirements-dev.txt
+pandas>=2.0   # runtime transitive; pinned for the local test env
+pytest>=8.0
+httpx>=0.27   # required by fastapi.testclient.TestClient for route-level tests

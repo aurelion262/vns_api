@@ -1,27 +1,10 @@
 from fastapi import APIRouter, HTTPException, Query
-import pandas as pd
 from vnstock_data import Reference
 from vnstock_data.explorer.kbs.company import Company as KBSCompany
 from vnstock_data.explorer.vci.company import Company as VCICompany
 from vnstock_data.explorer.kbs.listing import Listing as KBSListing
+from routers._serde import _clean_dataframe
 router = APIRouter(prefix="/api/v1/experiment/data/reference", tags=["Experiment Data Reference"])
-
-def _clean_dataframe(df):
-    if df is None:
-        return []
-    if isinstance(df, pd.DataFrame):
-        if df.empty:
-            return []
-        # Flatten MultiIndex columns if any
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = ['_'.join(map(str, col)).strip() for col in df.columns.values]
-        df_clean = df.astype(object).where(pd.notnull(df), None)
-        return df_clean.to_dict(orient="records")
-    elif isinstance(df, dict):
-        return [df]
-    elif isinstance(df, list):
-        return df
-    return []
 
 def get_ref():
     return Reference()
