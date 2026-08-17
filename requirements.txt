@@ -7,6 +7,8 @@ flask
 lxml
 schedule
 scipy
-vnstock_data>=2.0.0
+# 3.2.8 breaking: BCTC long-format + IS_*/BS_*/CF_* ids + ratio rename (VNSTOCK-328-MIGRATION-001).
+# Preflight fail-closed nếu venv bị nâng >=3.2.8 trước khi code migrate xong.
+vnstock_data>=2.0.0,<3.2.8
 vnstock_pipeline==2.3.2
 aiohttp>=3.9.0
