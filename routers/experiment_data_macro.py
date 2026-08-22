@@ -20,44 +20,54 @@ def _clean_dataframe(df):
 # --------------------------------------------------------------------------------
 # Economy
 # --------------------------------------------------------------------------------
+# vnstock_data 3.2.8: UI-chain Macro().economy().<method>() chỉ trả dữ liệu đúng khi
+# gọi KHÔNG tham số. Truyền `period` (bất kỳ giá trị) → vendor upstream 404; truyền
+# `length` → DataFrame rỗng. Default nội bộ của vendor từng metric đã khớp kỳ vọng
+# (gdp=quarter, cpi/industry_prod/...=month, population_labor=year). Query params
+# client gửi thêm (period/length/start/end) bị FastAPI bỏ qua.
+# Debt VNSTOCK-328-FOLLOWUP: khôi phục period/length khi vendor sửa ở bản kế tiếp.
+def _economy(method: str):
+    fn = getattr(Macro().economy(), method)
+    return {"data": _clean_dataframe(fn())}
+
 @router.get("/economy/gdp")
-def economy_gdp(start: str = None, end: str = None, period: str = "quarter", length: int = None):
-    try: return {"data": _clean_dataframe(Macro().economy().gdp(start=start, end=end, period=period, length=length))}
+def economy_gdp():
+    try: return _economy("gdp")
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/economy/cpi")
-def economy_cpi(start: str = None, end: str = None, period: str = "month", length: int = None):
-    try: return {"data": _clean_dataframe(Macro().economy().cpi(start=start, end=end, period=period, length=length))}
+def economy_cpi():
+    try: return _economy("cpi")
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/economy/industry_prod")
-def economy_industry_prod(start: str = None, end: str = None, period: str = "month", length: int = None):
-    try: return {"data": _clean_dataframe(Macro().economy().industry_prod(start=start, end=end, period=period, length=length))}
+def economy_industry_prod():
+    try: return _economy("industry_prod")
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/economy/import_export")
-def economy_import_export(start: str = None, end: str = None, period: str = "month", length: int = None):
-    try: return {"data": _clean_dataframe(Macro().economy().import_export(start=start, end=end, period=period, length=length))}
+def economy_import_export():
+    try: return _economy("import_export")
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/economy/retail")
-def economy_retail(start: str = None, end: str = None, period: str = "month", length: int = None):
-    try: return {"data": _clean_dataframe(Macro().economy().retail(start=start, end=end, period=period, length=length))}
+def economy_retail():
+    try: return _economy("retail")
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/economy/fdi")
-def economy_fdi(start: str = None, end: str = None, period: str = "month", length: int = None):
-    try: return {"data": _clean_dataframe(Macro().economy().fdi(start=start, end=end, period=period, length=length))}
+def economy_fdi():
+    try: return _economy("fdi")
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/economy/money_supply")
-def economy_money_supply(start: str = None, end: str = None, period: str = "month", length: int = None):
-    try: return {"data": _clean_dataframe(Macro().economy().money_supply(start=start, end=end, period=period, length=length))}
+def economy_money_supply():
+    try: return _economy("money_supply")
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/economy/population_labor")
-def economy_population_labor(start: str = None, end: str = None, period: str = "year", length: int = None):
-    try: return {"data": _clean_dataframe(Macro().economy().population_labor(start=start, end=end, period=period, length=length))}
+def economy_population_labor():
+    try: return _economy("population_labor")
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 
