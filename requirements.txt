@@ -7,8 +7,11 @@ flask
 lxml
 schedule
 scipy
-# 3.2.8 breaking: BCTC long-format + IS_*/BS_*/CF_* ids + ratio rename (VNSTOCK-328-MIGRATION-001).
-# Preflight fail-closed nếu venv bị nâng >=3.2.8 trước khi code migrate xong.
-vnstock_data>=2.0.0,<3.2.8
+# VNSTOCK-328-MIGRATION-001 (S3/S4): branch router + fetchers đã migrate
+# 3.2.8 (VAS unified ids) — flip từ cap <3.2.8 sang yêu cầu bundle mới.
+# Bundle đã verify: vnstock_data 3.2.8 + vnai 2.5.7 + vnstock 4.0.6.
+# EC2 pre-step (bằng installer, endpoint chỉ serve latest): nâng prod venv
+# TRƯỚC khi deploy branch này — deploy preflight sẽ fail nếu thiếu.
+vnstock_data>=3.2.8,<3.3
 vnstock_pipeline==2.3.2
 aiohttp>=3.9.0

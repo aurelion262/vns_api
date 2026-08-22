@@ -1,5 +1,27 @@
 from fastapi import APIRouter, HTTPException, Query
 import pandas as pd
+
+# VNSTOCK-328-MIGRATION-001: vnstock>=4.0.5/vnai>=2.5.6 tự ghi bootstrap
+# "Vnstock AI Agent" vào 7 đích (AGENTS.md, ~/.cursorrules, ~/.gemini/config/
+# AGENTS.md, ...) ở import-time qua thread nền; file có sẵn bị APPEND. Phải vá
+# cả package `vnai` LẪN submodule `vnai.beam.agents` TRƯỚC import vnstock_data
+# (vá 1 mức bị vượt qua qua đường import trực tiếp submodule).
+def _vnstock_agent_guard():
+    def _noop(*_args, **_kwargs):
+        return False
+    try:
+        import vnai
+        vnai.setup_agent_environment = _noop
+        vnai.async_setup_agent_environment = _noop
+        import vnai.beam.agents as _vba
+        _vba.setup_agent_environment = _noop
+        _vba.async_setup_agent_environment = _noop
+    except ImportError:
+        pass
+
+
+_vnstock_agent_guard()
+
 from vnstock_data import Fundamental
 
 router = APIRouter(prefix="/api/v1/experiment/data/fun", tags=["Experiment Data Fundamental"])
@@ -22,37 +44,47 @@ def _clean_dataframe(df):
     return []
 
 # --------------------------------------------------------------------------------
-# Equity Fundamental
+# Equity Fundamental — vnstock_data 3.2.8 (VAS unified ids IS_*/BS_*/CF_*).
+# Default source của Fundamental đổi MAS→VCI từ 3.2.8 (upstream, khuyến nghị VCI).
+# format: 'wide' (ma trận thời gian — gần contract cũ) | 'long' (phân cấp chuẩn VAS,
+# cột period/id/name/order/level/unit/value).
 # --------------------------------------------------------------------------------
+
+def _format_param():
+    return Query("wide", description="wide (ma trận thời gian) | long (phân cấp VAS)")
+
 
 @router.get("/equity/income_statement")
 def equity_income_statement(
-    symbol: str = Query(...), 
-    limit: int = Query(4), 
-    period_type: int = Query(1, description="1=Năm, 2=Quý"), 
-    lang: str = Query("vi")
+    symbol: str = Query(...),
+    limit: int = Query(4),
+    period_type: int = Query(1, description="1=Năm, 2=Quý"),
+    lang: str = Query("vi"),
+    format: str = _format_param(),
 ):
-    try: return {"data": _clean_dataframe(Fundamental().equity(symbol.upper()).income_statement(limit=limit, period_type=period_type, lang=lang))}
+    try: return {"data": _clean_dataframe(Fundamental().equity(symbol.upper()).income_statement(limit=limit, period_type=period_type, lang=lang, format=format))}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/equity/balance_sheet")
 def equity_balance_sheet(
-    symbol: str = Query(...), 
-    limit: int = Query(4), 
-    period_type: int = Query(1), 
-    lang: str = Query("vi")
+    symbol: str = Query(...),
+    limit: int = Query(4),
+    period_type: int = Query(1),
+    lang: str = Query("vi"),
+    format: str = _format_param(),
 ):
-    try: return {"data": _clean_dataframe(Fundamental().equity(symbol.upper()).balance_sheet(limit=limit, period_type=period_type, lang=lang))}
+    try: return {"data": _clean_dataframe(Fundamental().equity(symbol.upper()).balance_sheet(limit=limit, period_type=period_type, lang=lang, format=format))}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/equity/cash_flow")
 def equity_cash_flow(
-    symbol: str = Query(...), 
-    limit: int = Query(4), 
-    period_type: int = Query(1), 
-    lang: str = Query("vi")
+    symbol: str = Query(...),
+    limit: int = Query(4),
+    period_type: int = Query(1),
+    lang: str = Query("vi"),
+    format: str = _format_param(),
 ):
-    try: return {"data": _clean_dataframe(Fundamental().equity(symbol.upper()).cash_flow(limit=limit, period_type=period_type, lang=lang))}
+    try: return {"data": _clean_dataframe(Fundamental().equity(symbol.upper()).cash_flow(limit=limit, period_type=period_type, lang=lang, format=format))}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/equity/ratio")
