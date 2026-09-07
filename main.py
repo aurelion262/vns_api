@@ -16,6 +16,12 @@ from routers.experiment_data_retail import router as experiment_data_retail_rout
 
 app = FastAPI(title="Vnstock API Server", description="API server for vnstock_data (Paid Version)")
 
+# Tech-spec debt #3 / VNSAPI-QUOTA-ERROR-001: HTTPException 500 có detail match
+# exhaustion grammar → 429 + X-Upstream-Error: quota, detail nguyên văn;
+# mọi HTTPException khác delegate default chuẩn FastAPI.
+from upstream_errors import register_upstream_error_handlers
+register_upstream_error_handlers(app)
+
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from dotenv import load_dotenv

@@ -16,7 +16,10 @@ the real vnstock_data is installed in the venv.
 import sys
 from unittest.mock import MagicMock
 
-# Every sponsor submodule imported by routers/experiment_data_ref.py (and siblings).
+# Every sponsor submodule imported by routers (incl. main.py chain: main imports
+# ALL routers; experiment_ta pulls vnstock_ta whose real __init__ does
+# `from vnstock_data.ui import Market` — stub vnstock_ta/vnstock_data.ui so
+# importing main stays offline. Same for streamer's vnstock_pipeline.stream.)
 _SPONSOR_MODULES = [
     "vnstock_data",
     "vnstock_data.explorer",
@@ -25,6 +28,20 @@ _SPONSOR_MODULES = [
     "vnstock_data.explorer.kbs.listing",
     "vnstock_data.explorer.vci",
     "vnstock_data.explorer.vci.company",
+    "vnstock_data.ui",
+    "vnstock_ta",
+    "vnstock_ta.get_data",
+    "vnstock_pipeline",
+    "vnstock_pipeline.stream",
+    "vnstock_pipeline.stream.processors",
+    # IMPL verdict R1 F1: retail import `vnstock.ui` (kéo cả vnstock core thật),
+    # fun guard shim import `vnai`/`vnai.beam.agents` — pre-seed đủ vendor roots
+    # (regression khóa: tests/test_sponsor_isolation.py).
+    "vnstock",
+    "vnstock.ui",
+    "vnai",
+    "vnai.beam",
+    "vnai.beam.agents",
 ]
 for _mod in _SPONSOR_MODULES:
     sys.modules[_mod] = MagicMock()
