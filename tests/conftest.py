@@ -31,6 +31,14 @@ _SPONSOR_MODULES = [
     "vnstock_pipeline",
     "vnstock_pipeline.stream",
     "vnstock_pipeline.stream.processors",
+    # IMPL verdict R1 F1: retail import `vnstock.ui` (kéo cả vnstock core thật),
+    # fun guard shim import `vnai`/`vnai.beam.agents` — pre-seed đủ vendor roots
+    # (regression khóa: tests/test_sponsor_isolation.py).
+    "vnstock",
+    "vnstock.ui",
+    "vnai",
+    "vnai.beam",
+    "vnai.beam.agents",
 ]
 for _mod in _SPONSOR_MODULES:
     sys.modules[_mod] = MagicMock()
