@@ -10,25 +10,23 @@ CurrentConfig.LOCALE = Locale.EN
 
 router = APIRouter(prefix="/api/v1/experiment/ta", tags=["Experiment TA"])
 
+from routers._serde import _clean_dataframe as _serde_clean
+
 def _clean_dataframe(df):
-    if df is None:
-        return []
+    # VNSAPI-SERDE-MIGRATION-001 (plan R2 §3.2): giữ ĐÚNG thứ tự legacy
+    # (93c8552: flatten MultiIndex TRƯỚC ở dòng 19-20 cũ, rồi mới reset/stringify
+    # time-index ở dòng 22-27 cũ) — hai phép không giao hoán (verdict R1 F1:
+    # cross-product MultiIndex + DatetimeIndex đổi `time` thành `time_`);
+    # phần còn lại delegate _serde (empty→[], notnull→None, records; Series/dict/list).
     if isinstance(df, pd.DataFrame):
-        if df.empty:
-            return []
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = ['_'.join(map(str, col)).strip() for col in df.columns.values]
-            
-        # Include index as a column if it's named 'time' or is DatetimeIndex
         if df.index.name == 'time' or isinstance(df.index, pd.DatetimeIndex):
             df_reset = df.reset_index()
             if 'time' in df_reset.columns:
                 df_reset['time'] = df_reset['time'].astype(str)
             df = df_reset
-            
-        df_clean = df.astype(object).where(pd.notnull(df), None)
-        return df_clean.to_dict(orient="records")
-    return []
+    return _serde_clean(df)
 
 def _process_ta(symbol: str, start: str, end: str, method: str, **kwargs):
     try:

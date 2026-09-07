@@ -1,25 +1,8 @@
 from fastapi import APIRouter, HTTPException, Query
-import pandas as pd
+from routers._serde import _clean_dataframe
 from vnstock_data import Market
 
 router = APIRouter(prefix="/api/v1/experiment/data/market", tags=["Experiment Data Market"])
-
-def _clean_dataframe(df):
-    if df is None:
-        return []
-    if isinstance(df, pd.DataFrame):
-        if df.empty:
-            return []
-        # Flatten MultiIndex columns if any
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = ['_'.join(map(str, col)).strip() for col in df.columns.values]
-        df_clean = df.astype(object).where(pd.notnull(df), None)
-        return df_clean.to_dict(orient="records")
-    elif isinstance(df, dict):
-        return [df]
-    elif isinstance(df, list):
-        return df
-    return []
 
 def _parse_kwargs(start, end, interval, limit, timezone):
     kwargs = {}
