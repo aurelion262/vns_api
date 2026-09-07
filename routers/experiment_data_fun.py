@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 import pandas as pd
+from routers._serde import _clean_dataframe
 
 # VNSTOCK-328-MIGRATION-001: vnstock>=4.0.5/vnai>=2.5.6 tự ghi bootstrap
 # "Vnstock AI Agent" vào 7 đích (AGENTS.md, ~/.cursorrules, ~/.gemini/config/
@@ -25,23 +26,6 @@ _vnstock_agent_guard()
 from vnstock_data import Fundamental
 
 router = APIRouter(prefix="/api/v1/experiment/data/fun", tags=["Experiment Data Fundamental"])
-
-def _clean_dataframe(df):
-    if df is None:
-        return []
-    if isinstance(df, pd.DataFrame):
-        if df.empty:
-            return []
-        # Flatten MultiIndex columns if any
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = ['_'.join(map(str, col)).strip() for col in df.columns.values]
-        df_clean = df.astype(object).where(pd.notnull(df), None)
-        return df_clean.to_dict(orient="records")
-    elif isinstance(df, dict):
-        return [df]
-    elif isinstance(df, list):
-        return df
-    return []
 
 # --------------------------------------------------------------------------------
 # Equity Fundamental — vnstock_data 3.2.8 (VAS unified ids IS_*/BS_*/CF_*).

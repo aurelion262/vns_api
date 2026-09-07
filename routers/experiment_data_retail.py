@@ -1,21 +1,9 @@
 from fastapi import APIRouter, HTTPException, Query
 import pandas as pd
+from routers._serde import _clean_dataframe
 from vnstock.ui import Retail
 
 router = APIRouter(prefix="/api/v1/experiment/data/retail", tags=["Experiment Data Retail"])
-
-def _clean_dataframe(df):
-    if df is None:
-        return []
-    if isinstance(df, pd.DataFrame):
-        if df.empty:
-            return []
-        # Flatten MultiIndex columns if any
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = ['_'.join(map(str, col)).strip() for col in df.columns.values]
-        df_clean = df.astype(object).where(pd.notnull(df), None)
-        return df_clean.to_dict(orient="records")
-    return []
 
 # --------------------------------------------------------------------------------
 # Retail (Gold & Exchange Rate)

@@ -25,6 +25,12 @@ _SPONSOR_MODULES = [
     "vnstock_data.explorer.kbs.listing",
     "vnstock_data.explorer.vci",
     "vnstock_data.explorer.vci.company",
+    "vnstock_data.ui",
+    "vnstock_ta",
+    "vnstock_ta.get_data",
+    "vnstock_pipeline",
+    "vnstock_pipeline.stream",
+    "vnstock_pipeline.stream.processors",
 ]
 for _mod in _SPONSOR_MODULES:
     sys.modules[_mod] = MagicMock()
