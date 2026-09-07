@@ -1,5 +1,4 @@
 from fastapi import APIRouter, HTTPException, Query
-import pandas as pd
 from routers._serde import _clean_dataframe
 from vnstock.ui import Retail
 

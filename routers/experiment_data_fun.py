@@ -1,5 +1,4 @@
 from fastapi import APIRouter, HTTPException, Query
-import pandas as pd
 from routers._serde import _clean_dataframe
 
 # VNSTOCK-328-MIGRATION-001: vnstock>=4.0.5/vnai>=2.5.6 tự ghi bootstrap

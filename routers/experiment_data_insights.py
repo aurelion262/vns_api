@@ -1,5 +1,4 @@
 from fastapi import APIRouter, HTTPException, Query, Body
-import pandas as pd
 from routers._serde import _clean_dataframe
 from vnstock_data import Insights
 from typing import Optional, Dict, Any
