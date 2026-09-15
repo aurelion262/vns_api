@@ -34,7 +34,7 @@ router = APIRouter(prefix="/api/v1/experiment/data/fun", tags=["Experiment Data 
 # --------------------------------------------------------------------------------
 
 def _format_param():
-    return Query("long", description="long (phân cấp VAS — mặc định từ 3.2.9, wide regression ở 3.2.9) | wide (chỉ 3.2.8)")
+    return Query("wide", description="wide (ma trận thời gian) | long (phân cấp VAS)")
 
 
 @router.get("/equity/income_statement")
