@@ -101,10 +101,12 @@ def _fe_usecols(rows):
 def test_income_default_request_is_stable_wide(fake_fundamental, schema):
     """Request KHÔNG có `format` (như FE stockProfile.ts) → wide stable, FE matrix không null."""
     _FakeFinance.df_holder['df'] = _long_df(schema, YEARS + QUARTERS)
-    r = client.get('/api/v1/experiment/data/fun/equity/income_statement', params={'symbol': 'VNM'})
+    # limit=7 giữ đủ 7 kỳ fixture (default limit=4 giờ có hiệu lực F2)
+    r = client.get('/api/v1/experiment/data/fun/equity/income_statement',
+                   params={'symbol': 'VNM', 'limit': 7})
     assert r.status_code == 200, r.text
     rows = r.json()['data']
-    assert rows and 'id' in rows[0] and 'name' in rows[0]
+    assert rows and 'id' in rows[0] and 'item' in rows[0]  # F3: golden wide = item
     usecols = _fe_usecols(rows)
     assert len(usecols) >= 2, f'FE buildIncomeMatrix sẽ trả null: rows[0] keys={list(rows[0].keys())[:8]}'
     by_id = {row['id']: row for row in rows}
@@ -139,7 +141,7 @@ def test_format_long_opt_in(fake_fundamental):
                    params={'symbol': 'VNM', 'format': 'long'})
     assert r.status_code == 200
     rows = r.json()['data']
-    assert 'period' in rows[0] and 'id' in rows[0] and 'name' in rows[0]
+    assert 'period' in rows[0] and 'id' in rows[0] and 'name' in rows[0]  # long giữ id/name
 
 
 def test_ratio_long_keys_stable(fake_fundamental):
@@ -243,3 +245,77 @@ def test_conflict_on_non_target_id_is_deterministic(fake_fundamental):
     fin = [x for x in rows if x['id'] == 'IS_FINANCIAL_EXPENSES']
     assert len(fin) == 1
     assert fin[0]['2023'] == 999999.0  # deterministic: dòng ĐẦU theo vendor row-order
+
+
+# ---------------------------------------------------------------- R3 (verdict d33b184)
+
+@pytest.mark.parametrize('schema', ['v328', 'v329'])
+def test_r3_exact_key_golden_wide(fake_fundamental, schema):
+    """F3: wide metadata phải đúng canonical id,item,level,order,unit — exact-key,
+    cho CẢ fixture 3.2.8 và 3.2.9 (không chỉ assert matrix khác null)."""
+    fake_fundamental.df_holder['df'] = _long_df(schema, YEARS)
+    r = client.get('/api/v1/experiment/data/fun/equity/income_statement',
+                   params={'symbol': 'VNM', 'limit': 3})
+    assert r.status_code == 200
+    rows = r.json()['data']
+    keys = list(rows[0].keys())
+    assert keys[:5] == ['id', 'item', 'level', 'order', 'unit'], f'keys={keys[:6]}'
+    assert all(PERIOD_COL_RE.match(k) for k in keys[5:])
+
+
+def test_r3_gross_profit_conflict_ambiguous(fake_fundamental):
+    """F1: IS_GROSS_PROFIT là FE target ('LN gộp') — duplicate xung đột 100/999
+    phải 500 ambiguous_metric, KHÔNG chọn 100 im lặng."""
+    from routers.experiment_data_fun import _normalize_long_columns
+    ndf = _normalize_long_columns(_long_df('v329', YEARS).copy())
+    gp = ndf.iloc[[0]].copy()
+    gp['id'] = 'IS_GROSS_PROFIT'
+    gp['name'] = 'LN gộp'
+    gp['value'] = 100.0
+    gp2 = gp.copy()
+    gp2['value'] = 999.0
+    fake_fundamental.df_holder['df'] = pd.concat([ndf, gp, gp2], ignore_index=True)
+    r = client.get('/api/v1/experiment/data/fun/equity/income_statement', params={'symbol': 'VNM'})
+    assert r.status_code == 500
+    assert 'ambiguous_metric' in r.json()['detail']
+    assert 'IS_GROSS_PROFIT' in r.json()['detail']
+
+
+def test_r3_gross_profit_identical_dup_deduped(fake_fundamental):
+    from routers.experiment_data_fun import _normalize_long_columns
+    ndf = _normalize_long_columns(_long_df('v329', YEARS).copy())
+    gp = ndf.iloc[[0]].copy()
+    gp['id'] = 'IS_GROSS_PROFIT'
+    fake_fundamental.df_holder['df'] = pd.concat([ndf, gp, gp.copy()], ignore_index=True)
+    r = client.get('/api/v1/experiment/data/fun/equity/income_statement', params={'symbol': 'VNM'})
+    assert r.status_code == 200
+    rows = r.json()['data']
+    assert len([x for x in rows if x['id'] == 'IS_GROSS_PROFIT']) == 1
+
+
+def test_r3_limit_annual_two_periods(fake_fundamental):
+    """F2: statements limit=2 → đúng 2 kỳ mới nhất."""
+    fake_fundamental.df_holder['df'] = _long_df('v329', YEARS)
+    r = client.get('/api/v1/experiment/data/fun/equity/income_statement',
+                   params={'symbol': 'VNM', 'limit': 2})
+    rows = r.json()['data']
+    pcols = [k for k in rows[0] if PERIOD_COL_RE.match(k)]
+    assert sorted(pcols) == ['2024', '2025']
+
+
+def test_r3_limit_quarterly_two_periods(fake_fundamental):
+    fake_fundamental.df_holder['df'] = _long_df('v329', QUARTERS)
+    r = client.get('/api/v1/experiment/data/fun/equity/balance_sheet',
+                   params={'symbol': 'VNM', 'period_type': 2, 'limit': 2})
+    rows = r.json()['data']
+    pcols = [k for k in rows[0] if PERIOD_COL_RE.match(k)]
+    assert sorted(pcols) == ['2025-Q3', '2026-Q1']
+
+
+def test_r3_limit_ratio_two_periods(fake_fundamental):
+    fake_fundamental.df_holder['df'] = _long_df('v329', QUARTERS + YEARS)
+    r = client.get('/api/v1/experiment/data/fun/equity/ratio',
+                   params={'symbol': 'VNM', 'period_type': 2, 'limit': 2})
+    rows = r.json()['data']
+    periods = {row['period'] for row in rows}
+    assert sorted(periods) == ['2025-Q3', '2026-Q1']  # 2 kỳ mới nhất trong fixture hỗn hợp

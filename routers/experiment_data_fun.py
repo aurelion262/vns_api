@@ -48,17 +48,26 @@ import re as _re
 _PERIOD_RE = _re.compile(_PERIOD_RE_STR)
 
 
-# Bộ id FE thực sự đọc (vasAdapter.ts mapping — verdict P2-2: conflict-check
-# CHỈ target; live 3.2.9 chứng minh duplicate conflicting ở non-target id là
-# bình thường — vd sub-item "Trong đó:" gộp id cha với giá trị khác).
+# Target conflict set KHÓA theo đúng danh sách metric FE canonical
+# (st0nks_web/src/lib/vasAdapter.ts INCOME_METRIC_IDS — R3 F1 verdict d33b184:
+# thiếu IS_GROSS_PROFIT từng khiến duplicate xung đột 100/999 bị chọn 100 im lặng)
+# + IS_BASIC_EARNINGS_PER_SHARE (consumer stoxlab quarterly đọc EPS).
+# Non-target duplicate conflicting là bình thường trong live data — vd sub-item
+# "Trong đó:" gộp id cha với giá trị khác.
 _FE_TARGET_IDS = frozenset({
+    # 'Doanh thu'
     'IS_NET_REVENUE', 'IS_REVENUE',
     'IS_INTEREST_INCOME_AND_SIMILAR_INCOME',
     'IS_TOTAL_NET_REVENUE_FROM_INSURANCE_BUSINESS',
+    # 'LN gộp'
+    'IS_GROSS_PROFIT',
+    # 'LN từ HĐKD'
     'IS_OPERATING_PROFIT',
     'IS_OPERATING_PROFIT_BEFORE_PROVISION_FOR_CREDIT_LOSSES',
+    # 'LNST'
     'IS_NET_PROFIT_AFTER_TAX',
     'IS_PROFIT_AFTER_TAX_FOR_SHAREHOLDERS_OF_PARENT_COMPANY',
+    # stoxlab quarterly consumer
     'IS_BASIC_EARNINGS_PER_SHARE',
 })
 
@@ -89,25 +98,41 @@ def _long_to_stable_wide(df):
             keys = '; '.join(f'{k[0]}@{k[1]}' for k in nunique[nunique > 1].index[:5])
             raise ValueError(f'ambiguous_metric: giá trị xung đột (id, period): {keys}')
     sub = sub.drop_duplicates(['id', 'period'], keep='first')
+    # F3 (verdict d33b184): golden wide metadata = id,ITEM,level,order,unit
+    # (long/ratio giữ contract id/name). Dùng set_index/join — không merge-on-column.
     meta_cols = [c for c in ('id', 'name', 'level', 'order', 'unit') if c in sub.columns]
-    meta = sub.groupby('id', as_index=False)[[c for c in meta_cols if c != 'id']].first()
-    piv = sub.pivot(index='id', columns='period', values='value').reset_index()
-    piv = piv[['id'] + periods]
-    out = meta.merge(piv, on='id', how='right')
-    ordered = meta_cols + periods
-    return out[[c for c in ordered if c in out.columns]].reset_index(drop=True)
+    meta = sub.drop_duplicates('id', keep='first')[meta_cols]         .rename(columns={'name': 'item'}).set_index('id')
+    piv = sub.pivot(index='id', columns='period', values='value')
+    out = meta.join(piv, how='right').reset_index()
+    ordered = ['id'] + [('item' if m == 'name' else m) for m in meta_cols if m != 'id'] + periods
+    return out.reindex(columns=[c for c in ordered if c in out.columns])
+
+
+def _limit_periods(df, limit):
+    """F2 (verdict d33b184): áp limit — chỉ giữ N KỲ MỚI NHẤT (long đã normalize,
+    cột period dạng str). Trả df lọc; không đổi nếu thiếu cột/limit không hợp lệ."""
+    try:
+        n = max(1, int(limit))
+    except (TypeError, ValueError):
+        return df
+    if df is None or getattr(df, 'empty', True) or 'period' not in df.columns:
+        return df
+    df = df.copy()
+    df['period'] = df['period'].astype(str)
+    keep = sorted(df['period'].unique())[-n:]
+    return df[df['period'].isin(keep)]
 
 
 def _statement_response(method: str, symbol: str, limit: int, period_type: int, lang: str, fmt: str):
     """Finance adapter: taxonomy VAS áp mọi bản (IS_*/RT_* — verify live 15/9:
     Fundamental không-format trả raw isa1* nên KHÔNG dùng cho statement/ratio).
-    limit giữ cho tương thích query công khai; Finance tự giới hạn lịch sử mặc định."""
+    limit (F2): N kỳ mới nhất — áp SAU normalize cho cả wide và long."""
     period = 'year' if int(period_type) == 1 else 'quarter'
     fin = Finance(symbol=symbol.upper(), source='VCI', period=period)
-    df = getattr(fin, method)(lang=lang)  # vendor long mọi bản
+    df = _normalize_long_columns(getattr(fin, method)(lang=lang))  # vendor long mọi bản
     if fmt == 'long':
-        return {"data": _clean_dataframe(_normalize_long_columns(df))}
-    return {"data": _clean_dataframe(_long_to_stable_wide(df))}
+        return {"data": _clean_dataframe(_limit_periods(df, limit))}
+    return {"data": _clean_dataframe(_long_to_stable_wide(_limit_periods(df, limit)))}
 
 
 @router.get("/equity/income_statement")
@@ -153,7 +178,8 @@ def equity_ratio(
     try:
         period = 'year' if int(period_type) == 1 else 'quarter'
         fin = Finance(symbol=symbol.upper(), source='VCI', period=period)
-        return {"data": _clean_dataframe(_normalize_long_columns(fin.ratio(lang=lang)))}
+        df = _normalize_long_columns(fin.ratio(lang=lang))
+        return {"data": _clean_dataframe(_limit_periods(df, limit))}  # F2: N kỳ mới nhất
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/equity/note")
