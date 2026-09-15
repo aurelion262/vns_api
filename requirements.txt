@@ -12,9 +12,9 @@ scipy
 # Bundle đã verify: vnstock_data 3.2.8 + vnai 2.5.7 + vnstock 4.0.6.
 # EC2 pre-step (bằng installer, endpoint chỉ serve latest): nâng prod venv
 # TRƯỚC khi deploy branch này — deploy preflight sẽ fail nếu thiếu.
-# 3.2.9 BREAKING (verify 2026-09-15): doi ten cot long format (id->item_id,
-# name->item, order->display_order) + format='wide' tra raw fields -> fetchers
-# stoxlab fail-closed mat du lieu. Cap <3.2.9 cho toi khi adapt (task rieng).
-vnstock_data>=3.2.8,<3.2.9
+# 3.2.9 (verify 2026-09-15): doi ten cot long format + format='wide' tra raw
+# fields. Stoxlab fetchers da dual-schema (3.2.8/3.2.9 deu chay) — cho phep
+# ca hai; venv EC2 nang len 3.2.9 moi luc qua installer (serve latest).
+vnstock_data>=3.2.8,<3.3
 vnstock_pipeline==2.3.2
 aiohttp>=3.9.0
