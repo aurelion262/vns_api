@@ -1,3 +1,8 @@
+# VNSTOCK-328 P1-2 (verdict Codex 2191d4c): guard PHẢI chạy trước mọi import
+# vnstock* — dòng dưới (`from vnstock_data import Market`) từng chạy trước guard.
+from guard_vnstock import apply_vnstock_agent_guard
+apply_vnstock_agent_guard()
+
 from fastapi import FastAPI, Query, HTTPException, WebSocket, WebSocketDisconnect
 from vnstock_data import Market
 import pandas as pd

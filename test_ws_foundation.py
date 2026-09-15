@@ -75,6 +75,17 @@ def _install_fakes():
         if not hasattr(fake_data, name):
             setattr(fake_data, name, MagicMock())
 
+    # R2 (verdict 2191d4c): statements/ratio qua Finance adapter —
+    # vnstock_data.api(.financial) cũng phải có trong fake offline.
+    if "vnstock_data.api" not in sys.modules:
+        fake_api = types.ModuleType("vnstock_data.api")
+        fake_api.__path__ = []
+        sys.modules["vnstock_data.api"] = fake_api
+    if "vnstock_data.api.financial" not in sys.modules:
+        fake_financial = types.ModuleType("vnstock_data.api.financial")
+        fake_financial.Finance = MagicMock()
+        sys.modules["vnstock_data.api.financial"] = fake_financial
+
     if "vnstock_data.explorer" not in sys.modules:
         fake_explorer = types.ModuleType("vnstock_data.explorer")
         fake_explorer.__path__ = []

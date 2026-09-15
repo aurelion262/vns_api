@@ -22,6 +22,8 @@ from unittest.mock import MagicMock
 # importing main stays offline. Same for streamer's vnstock_pipeline.stream.)
 _SPONSOR_MODULES = [
     "vnstock_data",
+    "vnstock_data.api",            # R2: statements/ratio qua Finance adapter
+    "vnstock_data.api.financial",  # (stable wide contract — verdict Codex 2191d4c)
     "vnstock_data.explorer",
     "vnstock_data.explorer.kbs",
     "vnstock_data.explorer.kbs.company",
