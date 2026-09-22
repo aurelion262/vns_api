@@ -47,6 +47,29 @@ _PERIOD_RE_STR = r'^20\d{2}(-Q[1-4])?$'
 import re as _re
 _PERIOD_RE = _re.compile(_PERIOD_RE_STR)
 
+# F1 (SOL_R3_VERDICT_VN328): pattern period theo LOẠI yêu cầu (year|quarter)
+_PERIOD_KIND_RE = {
+    'year': _re.compile(r'^20\d{2}$'),
+    'quarter': _re.compile(r'^20\d{2}-Q[1-4]$'),
+}
+
+
+def _period_kind(period_type) -> str:
+    return 'year' if int(period_type) == 1 else 'quarter'
+
+
+def _filter_valid_periods(df, kind=None):
+    """F1 (SOL_R3_VERDICT_VN328): loại row có period KHÔNG hợp lệ (None/
+    'banana'/'None'-string/sai loại year|quarter so với yêu cầu) TRƯỚC khi
+    đếm limit — period rác KHÔNG được phép chiếm suất limit. Trả df chỉ còn
+    period hợp lệ (df nguyên vẹn nếu không phải long có cột period)."""
+    if df is None or getattr(df, 'empty', True) or 'period' not in df.columns:
+        return df
+    pat = _PERIOD_KIND_RE.get(kind) if kind else _PERIOD_RE
+    df = df.copy()
+    df['period'] = df['period'].astype(str)
+    return df[df['period'].map(lambda p: bool(pat.match(p)))]
+
 
 # Target conflict set KHÓA theo đúng danh sách metric FE canonical
 # (st0nks_web/src/lib/vasAdapter.ts INCOME_METRIC_IDS — R3 F1 verdict d33b184:
@@ -72,23 +95,37 @@ _FE_TARGET_IDS = frozenset({
 })
 
 
-def _long_to_stable_wide(df):
+def _long_to_stable_wide(df, kind=None, limit=None):
     """Vendor long (3.2.8 hoặc 3.2.9) → wide STABLE cho FE: dòng = chỉ tiêu,
     cột = kỳ ('2018', '2018-Q1'...).
     - TARGET id (FE đọc): duplicate identical → dedupe; giá trị xung đột →
       ValueError ambiguous_metric (KHÔNG chọn first).
     - Non-target: duplicate conflicting là bình thường trong live data →
-      drop_duplicates giữ dòng đầu (đ / row-order vendor, deterministic)."""
+      drop_duplicates giữ dòng đầu (đ / row-order vendor, deterministic).
+    - F1 (SOL_R3_VERDICT_VN328): lọc period hợp lệ (pattern + LOẠI yêu cầu)
+      TRƯỚC khi lấy N kỳ limit — period rác không chiếm suất. Có row mà hết
+      hợp lệ → ValueError no_valid_period (fail-closed): default-wide
+      KHÔNG BAO GIỜ trả long rows. Vendor 0 row → pass-through như cũ."""
     import pandas as pd
     df = _normalize_long_columns(df)
-    if df is None or df.empty or 'period' not in df.columns or 'id' not in df.columns:
+    if df is None or 'period' not in df.columns or 'id' not in df.columns:
         return df
-    df = df.copy()
-    df['period'] = df['period'].astype(str)
-    periods = sorted(p for p in df['period'].unique() if _PERIOD_RE.match(p))
-    if not periods:
-        return df
-    sub = df[df['period'].isin(periods)]
+    if df.empty:
+        return df  # vendor trả 0 row — không phải lỗi period
+    sub = _filter_valid_periods(df, kind)
+    if sub is None or sub.empty:
+        raise ValueError(
+            'no_valid_period: vendor period toàn rác/sai loại '
+            f'(kind={kind or "any"}) — từ chối trả wide (fail-closed)')
+    if limit is not None:
+        try:
+            n = max(1, int(limit))
+        except (TypeError, ValueError):
+            n = None
+        if n is not None:
+            keep = sorted(sub['period'].unique())[-n:]
+            sub = sub[sub['period'].isin(keep)]
+    periods = sorted(sub['period'].unique())
 
     tgt_dup = sub[sub['id'].isin(_FE_TARGET_IDS)].duplicated(['id', 'period'], keep=False)
     if tgt_dup.any():
@@ -108,17 +145,19 @@ def _long_to_stable_wide(df):
     return out.reindex(columns=[c for c in ordered if c in out.columns])
 
 
-def _limit_periods(df, limit):
-    """F2 (verdict d33b184): áp limit — chỉ giữ N KỲ MỚI NHẤT (long đã normalize,
-    cột period dạng str). Trả df lọc; không đổi nếu thiếu cột/limit không hợp lệ."""
+def _limit_periods(df, limit, kind=None):
+    """F2 (verdict d33b184): áp limit — chỉ giữ N KỲ MỚI NHẤT (long đã
+    normalize, cột period dạng str). Trả df lọc; không đổi nếu thiếu cột/
+    limit không hợp lệ.
+    F1 (SOL_R3_VERDICT_VN328): lọc period hợp lệ (pattern + loại yêu cầu)
+    TRƯỚC khi lấy N kỳ mới nhất — period rác không chiếm suất."""
     try:
         n = max(1, int(limit))
     except (TypeError, ValueError):
         return df
+    df = _filter_valid_periods(df, kind)
     if df is None or getattr(df, 'empty', True) or 'period' not in df.columns:
         return df
-    df = df.copy()
-    df['period'] = df['period'].astype(str)
     keep = sorted(df['period'].unique())[-n:]
     return df[df['period'].isin(keep)]
 
@@ -126,13 +165,15 @@ def _limit_periods(df, limit):
 def _statement_response(method: str, symbol: str, limit: int, period_type: int, lang: str, fmt: str):
     """Finance adapter: taxonomy VAS áp mọi bản (IS_*/RT_* — verify live 15/9:
     Fundamental không-format trả raw isa1* nên KHÔNG dùng cho statement/ratio).
-    limit (F2): N kỳ mới nhất — áp SAU normalize cho cả wide và long."""
+    limit (F2): N kỳ mới nhất — áp SAU normalize cho cả wide và long.
+    F1 (SOL_R3): lọc period theo LOẠI yêu cầu (year|quarter) trước limit."""
     period = 'year' if int(period_type) == 1 else 'quarter'
+    kind = _period_kind(period_type)
     fin = Finance(symbol=symbol.upper(), source='VCI', period=period)
     df = _normalize_long_columns(getattr(fin, method)(lang=lang))  # vendor long mọi bản
     if fmt == 'long':
-        return {"data": _clean_dataframe(_limit_periods(df, limit))}
-    return {"data": _clean_dataframe(_long_to_stable_wide(_limit_periods(df, limit)))}
+        return {"data": _clean_dataframe(_limit_periods(df, limit, kind))}
+    return {"data": _clean_dataframe(_long_to_stable_wide(df, kind, limit=limit))}
 
 
 @router.get("/equity/income_statement")
@@ -179,7 +220,9 @@ def equity_ratio(
         period = 'year' if int(period_type) == 1 else 'quarter'
         fin = Finance(symbol=symbol.upper(), source='VCI', period=period)
         df = _normalize_long_columns(fin.ratio(lang=lang))
-        return {"data": _clean_dataframe(_limit_periods(df, limit))}  # F2: N kỳ mới nhất
+        # F1 (SOL_R3): ratio cũng lọc period hợp lệ theo loại trước limit
+        return {"data": _clean_dataframe(
+            _limit_periods(df, limit, _period_kind(period_type)))}
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/equity/note")

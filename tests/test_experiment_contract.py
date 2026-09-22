@@ -99,9 +99,11 @@ def _fe_usecols(rows):
 
 @pytest.mark.parametrize('schema', ['v328', 'v329'])
 def test_income_default_request_is_stable_wide(fake_fundamental, schema):
-    """Request KHÔNG có `format` (như FE stockProfile.ts) → wide stable, FE matrix không null."""
+    """Request KHÔNG có `format` (như FE stockProfile.ts) → wide stable, FE matrix không null.
+    R4 F1: wide giờ lọc period theo LOẠI request — request year chỉ trả cột year,
+    request quarter (period_type=2) chỉ trả cột quarter (cross-type không lẫn)."""
     _FakeFinance.df_holder['df'] = _long_df(schema, YEARS + QUARTERS)
-    # limit=7 giữ đủ 7 kỳ fixture (default limit=4 giờ có hiệu lực F2)
+    # limit=7 giữ đủ kỳ hợp lệ của loại (default limit=4 giờ có hiệu lực F2)
     r = client.get('/api/v1/experiment/data/fun/equity/income_statement',
                    params={'symbol': 'VNM', 'limit': 7})
     assert r.status_code == 200, r.text
@@ -110,8 +112,16 @@ def test_income_default_request_is_stable_wide(fake_fundamental, schema):
     usecols = _fe_usecols(rows)
     assert len(usecols) >= 2, f'FE buildIncomeMatrix sẽ trả null: rows[0] keys={list(rows[0].keys())[:8]}'
     by_id = {row['id']: row for row in rows}
-    assert by_id['IS_NET_REVENUE']['2025'] == 3000.0  # 1000 * index 3 (0-based trong YEARS+QUARTERS)
-    assert by_id['IS_BASIC_EARNINGS_PER_SHARE']['2026-Q1'] == 70.0  # 10 * index 6
+    assert by_id['IS_NET_REVENUE']['2025'] == 3000.0  # 1000 * index 3 (0-based trong YEARS)
+    assert all('-Q' not in k for k in rows[0] if PERIOD_COL_RE.match(k))  # year request: chỉ year
+    # Quarter qua request period_type=2 — giá trị index 6 trong YEARS+QUARTERS
+    r2 = client.get('/api/v1/experiment/data/fun/equity/income_statement',
+                    params={'symbol': 'VNM', 'limit': 7, 'period_type': 2})
+    assert r2.status_code == 200
+    rows2 = r2.json()['data']
+    by_id2 = {row['id']: row for row in rows2}
+    assert by_id2['IS_BASIC_EARNINGS_PER_SHARE']['2026-Q1'] == 70.0  # 10 * index 6
+    assert all('-Q' in k or not PERIOD_COL_RE.match(k) for k in rows2[0])
 
 
 def test_income_contract_identical_across_vendor_versions(fake_fundamental):
@@ -127,8 +137,10 @@ def test_income_contract_identical_across_vendor_versions(fake_fundamental):
 
 @pytest.mark.parametrize('endpoint', ['balance_sheet', 'cash_flow'])
 def test_other_statements_default_wide(fake_fundamental, endpoint):
+    # R4 F1: fixture quarter → request phải đồng bộ period_type=2 (wide lọc theo loại)
     _FakeFinance.df_holder['df'] = _long_df('v329', QUARTERS)
-    r = client.get(f'/api/v1/experiment/data/fun/equity/{endpoint}', params={'symbol': 'VNM'})
+    r = client.get(f'/api/v1/experiment/data/fun/equity/{endpoint}',
+                   params={'symbol': 'VNM', 'period_type': 2})
     assert r.status_code == 200
     rows = r.json()['data']
     assert 'id' in rows[0]
@@ -145,9 +157,11 @@ def test_format_long_opt_in(fake_fundamental):
 
 
 def test_ratio_long_keys_stable(fake_fundamental):
-    """FE vasAdapter đọc ratio long theo r.id — 3.2.9 (item_id) phải normalize về id."""
+    """FE vasAdapter đọc ratio long theo r.id — 3.2.9 (item_id) phải normalize về id.
+    R4 F1: fixture quarter → period_type=2 đồng bộ (lọc theo loại)."""
     _FakeFinance.df_holder['df'] = _long_df('v329', ['2025-Q1', '2025-Q2'])
-    r = client.get('/api/v1/experiment/data/fun/equity/ratio', params={'symbol': 'VNM'})
+    r = client.get('/api/v1/experiment/data/fun/equity/ratio',
+                   params={'symbol': 'VNM', 'period_type': 2})
     assert r.status_code == 200
     rows = r.json()['data']
     assert 'id' in rows[0] and 'name' in rows[0] and 'period' in rows[0]
@@ -319,3 +333,102 @@ def test_r3_limit_ratio_two_periods(fake_fundamental):
     rows = r.json()['data']
     periods = {row['period'] for row in rows}
     assert sorted(periods) == ['2025-Q3', '2026-Q1']  # 2 kỳ mới nhất trong fixture hỗn hợp
+
+
+# ------------------------------------------- R4 (SOL_R3_VERDICT_VN328 — F1)
+# Replay verdict: period rác (None → 'None' sort sau '2025' / 'banana') chiếm
+# suất limit TRƯỚC khi được kiểm → wide trả long rows. Fix: lọc hợp lệ (pattern
+# + loại yêu cầu) TRƯỚC limit; hết hợp lệ → 500 no_valid_period fail-closed.
+
+def _with_junk_rows(df, junk_periods):
+    """Append row period rác (None/'banana') copy từ row đầu, value -1.0."""
+    rows = []
+    base = df.iloc[0].to_dict()
+    for jp in junk_periods:
+        r = dict(base)
+        r['period'] = jp
+        r['value'] = -1.0
+        rows.append(r)
+    return pd.concat([df, pd.DataFrame(rows)], ignore_index=True)
+
+
+def test_r4_f1_none_period_cannot_displace_limit1_wide(fake_fundamental):
+    """Replay ĐÚNG verdict: 2024/2025 + 1 row period=None, limit=1 (year) →
+    wide contract giữ nguyên (id,item,level,order,unit + 2025), KHÔNG trả long."""
+    df = _with_junk_rows(_long_df('v329', ['2024', '2025']), [None])
+    fake_fundamental.df_holder['df'] = df
+    r = client.get('/api/v1/experiment/data/fun/equity/income_statement',
+                   params={'symbol': 'VNM', 'limit': 1})
+    assert r.status_code == 200, r.text
+    rows = r.json()['data']
+    keys = list(rows[0].keys())
+    assert 'period' not in keys and 'value' not in keys  # KHÔNG phải long rows
+    assert keys[:5] == ['id', 'item', 'level', 'order', 'unit']
+    pcols = [k for k in keys if PERIOD_COL_RE.match(k)]
+    assert pcols == ['2025']  # None không chiếm suất
+
+
+def test_r4_f1_none_period_not_consume_limit2(fake_fundamental):
+    df = _with_junk_rows(_long_df('v329', ['2023', '2024', '2025']), [None])
+    fake_fundamental.df_holder['df'] = df
+    r = client.get('/api/v1/experiment/data/fun/equity/income_statement',
+                   params={'symbol': 'VNM', 'limit': 2})
+    assert r.status_code == 200
+    pcols = [k for k in r.json()['data'][0] if PERIOD_COL_RE.match(k)]
+    assert sorted(pcols) == ['2024', '2025']  # đủ 2 suất cho 2 năm hợp lệ
+
+
+def test_r4_f1_nonperiod_string_quarterly(fake_fundamental):
+    """'banana'/'None'-string ở request quarterly không chiếm suất limit."""
+    df = _with_junk_rows(_long_df('v329', QUARTERS), ['banana', 'None'])
+    fake_fundamental.df_holder['df'] = df
+    r = client.get('/api/v1/experiment/data/fun/equity/income_statement',
+                   params={'symbol': 'VNM', 'period_type': 2, 'limit': 2})
+    assert r.status_code == 200
+    pcols = [k for k in r.json()['data'][0] if PERIOD_COL_RE.match(k)]
+    assert sorted(pcols) == ['2025-Q3', '2026-Q1']
+
+
+def test_r4_f1_all_invalid_periods_fail_closed(fake_fundamental):
+    """Toàn bộ period rác → 500 no_valid_period (fail-closed), KHÔNG bao giờ
+    trả long rows từ default-wide path (đúng lỗi replay: 200 + keys long)."""
+    df = _with_junk_rows(_long_df('v329', ['banana', 'xyz-9']), [None])
+    fake_fundamental.df_holder['df'] = df
+    r = client.get('/api/v1/experiment/data/fun/equity/income_statement',
+                   params={'symbol': 'VNM'})
+    assert r.status_code == 500
+    assert 'no_valid_period' in r.json()['detail']
+
+
+def test_r4_f1_cross_type_period_does_not_displace_year(fake_fundamental):
+    """Kỳ HỢP LỆ nhưng SAI LOẠI (2026-Q1 trong request year, sort sau 2025)
+    không chiếm suất limit của kỳ year."""
+    fake_fundamental.df_holder['df'] = _long_df('v329', YEARS + QUARTERS)
+    r = client.get('/api/v1/experiment/data/fun/equity/income_statement',
+                   params={'symbol': 'VNM', 'period_type': 1, 'limit': 2})
+    assert r.status_code == 200
+    pcols = [k for k in r.json()['data'][0] if PERIOD_COL_RE.match(k)]
+    assert sorted(pcols) == ['2024', '2025']  # không phải ['2025', '2026-Q1']
+
+
+def test_r4_f1_long_path_junk_not_displace(fake_fundamental):
+    """format=long: label rác không làm mất kỳ hợp lệ mới nhất."""
+    df = _with_junk_rows(_long_df('v329', ['2024', '2025']), [None])
+    fake_fundamental.df_holder['df'] = df
+    r = client.get('/api/v1/experiment/data/fun/equity/income_statement',
+                   params={'symbol': 'VNM', 'format': 'long', 'limit': 1})
+    assert r.status_code == 200
+    periods = {row['period'] for row in r.json()['data']}
+    assert periods == {'2025'}
+    assert 'None' not in periods and -1.0 not in [row['value'] for row in r.json()['data']]
+
+
+def test_r4_f1_ratio_junk_not_displace(fake_fundamental):
+    """Ratio path: period rác không chiếm suất kỳ hợp lệ."""
+    df = _with_junk_rows(_long_df('v329', QUARTERS), [None])
+    fake_fundamental.df_holder['df'] = df
+    r = client.get('/api/v1/experiment/data/fun/equity/ratio',
+                   params={'symbol': 'VNM', 'period_type': 2, 'limit': 1})
+    assert r.status_code == 200
+    periods = {row['period'] for row in r.json()['data']}
+    assert periods == {'2026-Q1'}
