@@ -432,3 +432,45 @@ def test_r4_f1_ratio_junk_not_displace(fake_fundamental):
     assert r.status_code == 200
     periods = {row['period'] for row in r.json()['data']}
     assert periods == {'2026-Q1'}
+
+
+# ------------------------------------------- R5 (SOL_R4_VERDICT_VN328 — F1)
+# Replay: frame CÓ DỮ LIỆU nhưng THIẾU CỘT period/id từng thoát fail-closed
+# (trả 200 raw long-like keys id,name,level,order,unit,value).
+
+def _df_missing_column(column):
+    base = {'id': 'IS_NET_REVENUE', 'name': 'Doanh thu', 'level': 1,
+            'order': 1, 'unit': 'VNĐ', 'value': 100.0, 'period': '2025'}
+    del base[column]
+    return pd.DataFrame([base])
+
+
+@pytest.mark.parametrize('missing', ['period', 'id'])
+def test_r5_f1_missing_column_fail_closed(fake_fundamental, missing):
+    """Frame có row nhưng thiếu cột period/id → 500 controlled marker —
+    default-wide KHÔNG bao giờ trả name/value/period long keys."""
+    fake_fundamental.df_holder['df'] = _df_missing_column(missing)
+    r = client.get('/api/v1/experiment/data/fun/equity/income_statement',
+                   params={'symbol': 'VNM', 'limit': 1})
+    assert r.status_code == 500, r.text
+    assert 'vendor_schema_missing_column' in r.json()['detail']
+    assert missing in r.json()['detail']
+
+
+def test_r5_f1_missing_column_balance_sheet_too(fake_fundamental):
+    """Cùng lỗ hổng ở statement khác — fail-closed đồng nhất."""
+    fake_fundamental.df_holder['df'] = _df_missing_column('period')
+    r = client.get('/api/v1/experiment/data/fun/equity/balance_sheet',
+                   params={'symbol': 'VNM'})
+    assert r.status_code == 500
+    assert 'vendor_schema_missing_column' in r.json()['detail']
+
+
+def test_r5_f1_empty_vendor_frame_still_passthrough(fake_fundamental):
+    """Vendor 0 row (genuine no-data) giữ pass-through 200 [] như cũ —
+    phân biệt với frame có dữ liệu thiếu schema."""
+    fake_fundamental.df_holder['df'] = pd.DataFrame()
+    r = client.get('/api/v1/experiment/data/fun/equity/income_statement',
+                   params={'symbol': 'VNM'})
+    assert r.status_code == 200
+    assert r.json()['data'] == []

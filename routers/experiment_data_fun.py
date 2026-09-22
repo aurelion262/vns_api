@@ -108,10 +108,19 @@ def _long_to_stable_wide(df, kind=None, limit=None):
       KHÔNG BAO GIỜ trả long rows. Vendor 0 row → pass-through như cũ."""
     import pandas as pd
     df = _normalize_long_columns(df)
-    if df is None or 'period' not in df.columns or 'id' not in df.columns:
+    if df is None:
         return df
     if df.empty:
         return df  # vendor trả 0 row — không phải lỗi period
+    # F1 (SOL_R4_VERDICT_VN328): frame CÓ DỮ LIỆU nhưng thiếu cột period/id
+    # → fail-closed controlled — KHÔNG bao giờ serialize raw long-like từ
+    # default-wide path (replay reviewer: row đủ id,name,level,order,unit,
+    # value nhưng không có period từng trả 200 raw).
+    if 'period' not in df.columns or 'id' not in df.columns:
+        missing = 'period' if 'period' not in df.columns else 'id'
+        raise ValueError(
+            f'vendor_schema_missing_column: frame có dữ liệu nhưng thiếu cột '
+            f'{missing!r} — từ chối trả wide (fail-closed)')
     sub = _filter_valid_periods(df, kind)
     if sub is None or sub.empty:
         raise ValueError(
